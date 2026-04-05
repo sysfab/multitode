@@ -29,8 +29,7 @@ public final class HostSession {
     public HelloAcceptedPacket createHelloAcceptedPacket() {
         return new HelloAcceptedPacket(
                 sessionId,
-                nextPlayerId.getAndIncrement(),
-                context.getSessionConfig().getSync().getSnapshotIntervalTicks()
+                nextPlayerId.getAndIncrement()
         );
     }
 

@@ -22,8 +22,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class HostClientConnection {
     private static final TLog LOGGER = TLog.forTag("multitode/HostClientConnection");
-    private static final int SOCKET_TIMEOUT_MILLIS = 1000;
-    private static final long PING_INTERVAL_MILLIS = 2000L;
+    
+    private static final int SOCKET_TIMEOUT_MILLIS = 10000;
+    private static final long PING_INTERVAL_MILLIS = 5000L;
     private static final long INACTIVITY_TIMEOUT_MILLIS = 10000L;
 
     private final HostSession hostSession;

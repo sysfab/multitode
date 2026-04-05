@@ -1,9 +1,8 @@
 package dev.multitode.bridge.shared;
 
 public final class NetworkConfig {
-    private String host = "127.0.0.1";
+    private String host = "0.0.0.0";
     private int port = 24812;
-    private int listenPort = 24812;
 
     public String getHost() {
         return host;
@@ -11,7 +10,7 @@ public final class NetworkConfig {
 
     public void setHost(String host) {
         if (host == null || host.isBlank()) {
-            this.host = "127.0.0.1";
+            this.host = "0.0.0.0";
             return;
         }
 
@@ -29,18 +28,5 @@ public final class NetworkConfig {
         }
 
         this.port = port;
-    }
-
-    public int getListenPort() {
-        return listenPort;
-    }
-
-    public void setListenPort(int listenPort) {
-        if (listenPort <= 0) {
-            this.listenPort = 24812;
-            return;
-        }
-
-        this.listenPort = listenPort;
     }
 }

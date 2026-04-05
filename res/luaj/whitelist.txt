@@ -39628,32 +39628,26 @@
      +m:getConfigValidationError:
      +m:getConfigFilePath:
      +m:getBridge:
+     +m:getVersion:
      +m:getConnectedPeerCount:
      +m:getConfiguredRoleName:
      +m:getConnectionStateName:
      +m:getLifecycleStateName:
      +m:getHost:
-     +m:getListenPort:
      +m:getLocalPlayerId:
      +m:getPendingLuaMessageCount:
      +m:getPlayerName:
      +m:getPort:
      +m:getRoleName:
      +m:getSessionId:
-     +m:getSnapshotIntervalTicks:
      +m:getStateHashSampleJson:int
      +m:getPendingStartupSyncJson:
      +m:initialize:String
      +m:initialize:
-     +m:isAutoConnect:
-     +m:isAutoStart:
      +m:isConfigValid:
      +m:isInitialized:
      +m:hasPeers:
      +m:isSessionActive:
-     +m:isLogCommands:
-     +m:isLogDesyncs:
-     +m:isVerboseLogging:
      +m:loadConfig:
      +m:pollInboundLuaMessageJson:
      +m:resetApprovedQueuedActions:
@@ -39664,16 +39658,9 @@
      +m:saveStateHashSampleJson:int,String
      +m:sendLuaMessageToHost:String,String,String
      +m:sendLuaMessageToPeer:int,String,String,String
-     +m:setAutoConnect:boolean
-     +m:setAutoStart:boolean
      +m:setHost:String
-     +m:setListenPort:int
-     +m:setLogCommands:boolean
-     +m:setLogDesyncs:boolean
      +m:setPlayerName:String
      +m:setPort:int
-     +m:setSnapshotIntervalTicks:int
-     +m:setVerboseLogging:boolean
      +m:start:String
      +m:start:
      +m:stop:

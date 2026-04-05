@@ -84,6 +84,10 @@ public final class BridgeApi {
         return bridge;
     }
 
+    public synchronized String getVersion() {
+        return Bridge.getVersion();
+    }
+
     public synchronized String getRoleName() {
         if (bridge == null) {
             return null;
@@ -102,16 +106,9 @@ public final class BridgeApi {
 
     public synchronized void resetConfig() {
         sessionConfig.setRole(SessionRole.HOST_AND_CLIENT);
-        sessionConfig.setAutoStart(false);
-        sessionConfig.setAutoConnect(false);
         sessionConfig.getPlayer().setName("Player");
-        sessionConfig.getNetwork().setHost("127.0.0.1");
+        sessionConfig.getNetwork().setHost("0.0.0.0");
         sessionConfig.getNetwork().setPort(24812);
-        sessionConfig.getNetwork().setListenPort(24812);
-        sessionConfig.getSync().setSnapshotIntervalTicks(100);
-        sessionConfig.getDebug().setVerboseLogging(true);
-        sessionConfig.getDebug().setLogCommands(true);
-        sessionConfig.getDebug().setLogDesyncs(true);
     }
 
     public synchronized void configureRole(String roleName) {
@@ -120,22 +117,6 @@ public final class BridgeApi {
 
     public synchronized String getConfiguredRoleName() {
         return sessionConfig.getRole().name();
-    }
-
-    public synchronized void setAutoStart(boolean autoStart) {
-        sessionConfig.setAutoStart(autoStart);
-    }
-
-    public synchronized boolean isAutoStart() {
-        return sessionConfig.isAutoStart();
-    }
-
-    public synchronized void setAutoConnect(boolean autoConnect) {
-        sessionConfig.setAutoConnect(autoConnect);
-    }
-
-    public synchronized boolean isAutoConnect() {
-        return sessionConfig.isAutoConnect();
     }
 
     public synchronized void setPlayerName(String name) {
@@ -162,46 +143,6 @@ public final class BridgeApi {
         return sessionConfig.getNetwork().getPort();
     }
 
-    public synchronized void setListenPort(int listenPort) {
-        sessionConfig.getNetwork().setListenPort(listenPort);
-    }
-
-    public synchronized int getListenPort() {
-        return sessionConfig.getNetwork().getListenPort();
-    }
-
-    public synchronized void setSnapshotIntervalTicks(int snapshotIntervalTicks) {
-        sessionConfig.getSync().setSnapshotIntervalTicks(snapshotIntervalTicks);
-    }
-
-    public synchronized int getSnapshotIntervalTicks() {
-        return sessionConfig.getSync().getSnapshotIntervalTicks();
-    }
-
-    public synchronized void setVerboseLogging(boolean verboseLogging) {
-        sessionConfig.getDebug().setVerboseLogging(verboseLogging);
-    }
-
-    public synchronized boolean isVerboseLogging() {
-        return sessionConfig.getDebug().isVerboseLogging();
-    }
-
-    public synchronized void setLogCommands(boolean logCommands) {
-        sessionConfig.getDebug().setLogCommands(logCommands);
-    }
-
-    public synchronized boolean isLogCommands() {
-        return sessionConfig.getDebug().isLogCommands();
-    }
-
-    public synchronized void setLogDesyncs(boolean logDesyncs) {
-        sessionConfig.getDebug().setLogDesyncs(logDesyncs);
-    }
-
-    public synchronized boolean isLogDesyncs() {
-        return sessionConfig.getDebug().isLogDesyncs();
-    }
-
     public synchronized String describeConfig() {
         return sessionConfig.describe();
     }
@@ -213,16 +154,9 @@ public final class BridgeApi {
     public synchronized void saveConfig() {
         Properties properties = new Properties();
         properties.setProperty("role", sessionConfig.getRole().name());
-        properties.setProperty("autoStart", Boolean.toString(sessionConfig.isAutoStart()));
-        properties.setProperty("autoConnect", Boolean.toString(sessionConfig.isAutoConnect()));
         properties.setProperty("playerName", sessionConfig.getPlayer().getName());
         properties.setProperty("host", sessionConfig.getNetwork().getHost());
         properties.setProperty("port", Integer.toString(sessionConfig.getNetwork().getPort()));
-        properties.setProperty("listenPort", Integer.toString(sessionConfig.getNetwork().getListenPort()));
-        properties.setProperty("snapshotIntervalTicks", Integer.toString(sessionConfig.getSync().getSnapshotIntervalTicks()));
-        properties.setProperty("verboseLogging", Boolean.toString(sessionConfig.getDebug().isVerboseLogging()));
-        properties.setProperty("logCommands", Boolean.toString(sessionConfig.getDebug().isLogCommands()));
-        properties.setProperty("logDesyncs", Boolean.toString(sessionConfig.getDebug().isLogDesyncs()));
 
         try {
             Path parent = CONFIG_PATH.getParent();
@@ -256,12 +190,6 @@ public final class BridgeApi {
         if (properties.containsKey("role")) {
             sessionConfig.setRoleName(properties.getProperty("role"));
         }
-        if (properties.containsKey("autoStart")) {
-            sessionConfig.setAutoStart(Boolean.parseBoolean(properties.getProperty("autoStart")));
-        }
-        if (properties.containsKey("autoConnect")) {
-            sessionConfig.setAutoConnect(Boolean.parseBoolean(properties.getProperty("autoConnect")));
-        }
         if (properties.containsKey("playerName")) {
             sessionConfig.getPlayer().setName(properties.getProperty("playerName"));
         }
@@ -270,21 +198,6 @@ public final class BridgeApi {
         }
         if (properties.containsKey("port")) {
             sessionConfig.getNetwork().setPort(parseIntProperty(properties, "port", sessionConfig.getNetwork().getPort()));
-        }
-        if (properties.containsKey("listenPort")) {
-            sessionConfig.getNetwork().setListenPort(parseIntProperty(properties, "listenPort", sessionConfig.getNetwork().getListenPort()));
-        }
-        if (properties.containsKey("snapshotIntervalTicks")) {
-            sessionConfig.getSync().setSnapshotIntervalTicks(parseIntProperty(properties, "snapshotIntervalTicks", sessionConfig.getSync().getSnapshotIntervalTicks()));
-        }
-        if (properties.containsKey("verboseLogging")) {
-            sessionConfig.getDebug().setVerboseLogging(Boolean.parseBoolean(properties.getProperty("verboseLogging")));
-        }
-        if (properties.containsKey("logCommands")) {
-            sessionConfig.getDebug().setLogCommands(Boolean.parseBoolean(properties.getProperty("logCommands")));
-        }
-        if (properties.containsKey("logDesyncs")) {
-            sessionConfig.getDebug().setLogDesyncs(Boolean.parseBoolean(properties.getProperty("logDesyncs")));
         }
 
         LOGGER.i("Loaded config from %s: %s", getConfigFilePath(), describeConfig());

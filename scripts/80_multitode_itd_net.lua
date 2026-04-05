@@ -37,6 +37,7 @@ local actionClassByType = {
 local function deserialize_action(payload, actionType, actionJson)
     local actionClass
     if actionType == "SPD" then
+        if (payload.speed < 1) then payload.speed = 1 end 
         return C.ScriptAction.new_S("multitode.itd.lastSpeed = " .. payload.speed .. " S.state:setGameSpeed(" .. payload.speed .. ")")
     else
         actionClass = actionClassByType[actionType]
@@ -129,49 +130,6 @@ local function enqueue_authoritative_action(envelope, sourceLabel)
     return true
 end
 
-local function enqueue_auto_wave_change(envelope, sourceLabel)
-    local targetTick = tonumber(envelope.target_tick)
-    if targetTick == nil then
-        error("missing target_tick")
-    end
-
-    local payload = envelope.payload or {}
-    local enabled = not not payload.enabled
-
-    local systems = get_current_systems()
-    if systems == nil or systems.state == nil or systems.wave == nil then
-        logger:w("Dropping auto wave change before game systems are ready")
-        return false
-    end
-
-    local currentTick = get_current_tick()
-    local effectiveTargetTick = targetTick
-    if currentTick >= 0 then
-        effectiveTargetTick = math.max(effectiveTargetTick, currentTick + MIN_ACTION_LEAD_TICKS)
-    end
-
-    local action = C.ScriptAction.new_S(string.format(
-        "multitode.itd.allowLocalActions(function() S.wave:setAutoForceWaveEnabled(%s) end)",
-        tostring(enabled)
-    ))
-    systems.state:pushAction(action, effectiveTargetTick)
-    logger:i(
-        "%s queued auto wave change enabled=%s for tick %s",
-        tostring(sourceLabel),
-        tostring(enabled),
-        tostring(effectiveTargetTick)
-    )
-    return true
-end
-
-local function apply_authoritative_message(envelope, sourceLabel)
-    if envelope.action == "AWC" then
-        return enqueue_auto_wave_change(envelope, sourceLabel)
-    end
-
-    return enqueue_authoritative_action(envelope, sourceLabel)
-end
-
 local function should_handle_client_action_apply()
     local ok, state = pcall(multitode.state)
     if not ok or state == nil then
@@ -196,7 +154,7 @@ local function ensure_handlers_registered()
         )
 
         multitode.net.broadcast("itd", "action_apply", payload)
-        apply_authoritative_message(payload, "Host")
+        enqueue_authoritative_action(payload, "Host")
     end)
 
     multitode.net.onClient("itd", "action_apply", function(_, payload)
@@ -204,7 +162,7 @@ local function ensure_handlers_registered()
             return
         end
 
-        apply_authoritative_message(payload, "Client")
+        enqueue_authoritative_action(payload, "Client")
     end)
 
     itdNet.handlersRegistered = true

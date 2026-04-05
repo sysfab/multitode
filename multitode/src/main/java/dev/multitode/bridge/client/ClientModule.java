@@ -23,10 +23,6 @@ public final class ClientModule extends AbstractBridgeModule {
     @Override
     public void start() {
         LOGGER.i("Client module start for role %s", getContext().getRole().name());
-        if (!getContext().getSessionConfig().isAutoConnect()) {
-            LOGGER.i("Client auto-connect disabled, skipping TCP connect scaffold");
-            return;
-        }
 
         clientConnection = new ClientConnection(getContext());
         clientConnection.start();

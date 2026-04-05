@@ -96,10 +96,9 @@ public final class ClientConnection {
                 localSessionInfo.setConnectedAtMillis(now);
                 localSessionInfo.setLastPacketAtMillis(now);
                 localSessionInfo.setConnectionState(ConnectionState.ACTIVE);
-                LOGGER.i("Connected to session %s as playerId=%s snapshotInterval=%s",
+                LOGGER.i("Connected to session %s as playerId=%s",
                         acceptedPacket.getSessionId(),
-                        acceptedPacket.getPlayerId(),
-                        acceptedPacket.getSnapshotIntervalTicks());
+                        acceptedPacket.getPlayerId());
                 runSessionLoop(host, port, inputStream, outputStream);
                 return;
             }

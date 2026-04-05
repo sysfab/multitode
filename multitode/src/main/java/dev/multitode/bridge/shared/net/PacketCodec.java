@@ -35,7 +35,6 @@ public final class PacketCodec {
         outputStream.writeInt(PacketType.HELLO_ACCEPTED.getId());
         outputStream.writeUTF(packet.getSessionId());
         outputStream.writeInt(packet.getPlayerId());
-        outputStream.writeInt(packet.getSnapshotIntervalTicks());
         outputStream.flush();
     }
 
@@ -47,7 +46,6 @@ public final class PacketCodec {
     public static HelloAcceptedPacket readHelloAcceptedPayload(DataInputStream inputStream) throws IOException {
         return new HelloAcceptedPacket(
                 inputStream.readUTF(),
-                inputStream.readInt(),
                 inputStream.readInt()
         );
     }

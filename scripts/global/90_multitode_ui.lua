@@ -12,11 +12,6 @@ local profileClickListeners = {}
 local listenerOwnersDumped = false
 local open_multiplayer_window = nil
 
-local bridgeModes = {
-    "CLIENT",
-    "HOST_AND_CLIENT"
-}
-
 local function clear_profile_click_listener()
     profileClickListeners = {}
     profileSummaryActor = nil
@@ -67,17 +62,20 @@ end
 
 local function format_bridge_mode(role)
     if role == "HOST_AND_CLIENT" then
-        return "Host and Client"
+        return "Mode: Host"
+    else
+        return "Mode: Client"
     end
-
-    local normalized = tostring(role or "CLIENT"):lower():gsub("_", " ")
-    return normalized:gsub("(%a)([%w']*)", function(first, rest)
-        return string.upper(first) .. rest
-    end)
 end
 
 local function next_bridge_mode(role)
+    local bridgeModes = {
+        "CLIENT",
+        "HOST_AND_CLIENT"
+    }
+
     local current = tostring(role or "HOST_AND_CLIENT")
+
     for i = 1, #bridgeModes do
         if bridgeModes[i] == current then
             return bridgeModes[(i % #bridgeModes) + 1]
@@ -149,7 +147,7 @@ local function open_port_input()
         local port = tonumber(value)
         if port ~= nil then
             port = math.floor(port)
-            multitode.configure({ port = port, listenPort = port })
+            multitode.configure({ port = port })
         end
     end)
 end
@@ -213,7 +211,7 @@ open_multiplayer_window = function()
 
     local window = C.Window.new_WS(windowStyle)
     multiplayerWindow = window
-    window:setTitle("Multiplayer")
+    window:setTitle("")
     window:addListener(C.WindowListener({
         closed = function()
             local ok, err = pcall(function()
@@ -236,18 +234,11 @@ open_multiplayer_window = function()
     local info = C.Table.new()
     info:setBackground(C.Game.i.assetManager:getDrawable("blank"):tint(C.Color.new_4f(0.08, 0.1, 0.14, 0.9)))
     info:pad(16)
-    local infoTitle = C.Label.new("Session Config", titleStyle)
+    local infoTitle = C.Label.new("Multitode", titleStyle)
     infoTitle:setColor(C.MaterialColor.LIGHT_BLUE.P500)
     info:add(infoTitle):colspan(2):left():padBottom(14):row()
-    add_info_row(info, "Profile", config.name)
-    add_info_row(info, "Role", config.role)
-    add_info_row(info, "Host", config.host)
-    add_info_row(info, "Port", config.port)
-    add_info_row(info, "Listen", config.listenPort)
-    add_info_row(info, "Auto start", config.autoStart)
-    add_info_row(info, "Auto connect", config.autoConnect)
-    add_info_row(info, "Session", multitode.describeSession())
-    add_info_row(info, "Peers", multitode.describePeers())
+    add_info_row(info, "Version", multitode.version)
+    add_info_row(info, "Main developer", "sysfab")
 
     content:add(info):width(540):left():padBottom(12):row()
 

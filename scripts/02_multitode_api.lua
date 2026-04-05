@@ -1,55 +1,8 @@
-local logger = C.TLog:forTag("multitode/api.lua")
+local logger = C.TLog:forTag("multitode/multitode.getApi().lua")
 
-local bridgeApiClassName = "dev.multitode.bridge.shared.BridgeApi"
-local bridgeApiClass = nil
-local bridgeApi = nil
-local bridgeApiBindError = nil
 local jsonReader = C.JsonReader.new()
+
 local autoDispatchRegistered = false
-
-local function get_bridge_api()
-    if bridgeApi ~= nil then
-        return bridgeApi
-    end
-    if bridgeApiBindError ~= nil then
-        error(bridgeApiBindError)
-    end
-
-    local ok, result = pcall(luajava.bindClass, bridgeApiClassName)
-    if not ok then
-        bridgeApiBindError = "failed to bind " .. bridgeApiClassName .. ": " .. tostring(result)
-        error(bridgeApiBindError)
-    end
-
-    bridgeApiClass = result
-
-    local ok, instance = pcall(function()
-        return bridgeApiClass.INSTANCE
-    end)
-    if not ok then
-        bridgeApiBindError = "failed to access " .. bridgeApiClassName .. ".INSTANCE: " .. tostring(instance)
-        error(bridgeApiBindError)
-    end
-    if instance == nil then
-        bridgeApiBindError = bridgeApiClassName .. ".INSTANCE is nil"
-        error(bridgeApiBindError)
-    end
-
-    bridgeApi = instance
-    return bridgeApi
-end
-
-local function normalize_role(role)
-    if role == nil then
-        return "HOST_AND_CLIENT"
-    end
-
-    local normalized = tostring(role):upper():gsub("-", "_"):gsub("%s+", "_")
-    if normalized == "LOCAL" or normalized == "LOCALHOST" then
-        return "HOST_AND_CLIENT"
-    end
-    return normalized
-end
 
 local function escape_json_string(value)
     return tostring(value)
@@ -177,7 +130,7 @@ end
 
 local function apply_config_value(api, key, value)
     if key == "role" then
-        api:configureRole(normalize_role(value))
+        api:configureRole(value)
     elseif key == "name" or key == "playerName" then
         api:setPlayerName(tostring(value))
     elseif key == "host" then
@@ -187,35 +140,67 @@ local function apply_config_value(api, key, value)
         if numberValue == nil then
             error("port must be a number")
         end
-        api:setPort(numberValue)
-    elseif key == "listenPort" then
-        local numberValue = tonumber(value)
-        if numberValue == nil then
-            error("listenPort must be a number")
-        end
-        api:setListenPort(numberValue)
-    elseif key == "autoStart" then
-        api:setAutoStart(not not value)
-    elseif key == "autoConnect" then
-        api:setAutoConnect(not not value)
-    elseif key == "snapshotIntervalTicks" then
-        local numberValue = tonumber(value)
-        if numberValue == nil then
-            error("snapshotIntervalTicks must be a number")
-        end
-        api:setSnapshotIntervalTicks(numberValue)
-    elseif key == "verboseLogging" then
-        api:setVerboseLogging(not not value)
-    elseif key == "logCommands" then
-        api:setLogCommands(not not value)
-    elseif key == "logDesyncs" then
-        api:setLogDesyncs(not not value)
+        multitode.getApi():setPort(numberValue)
     else
         error("unsupported config key: " .. tostring(key))
     end
 end
 
-local function create_state_table(api)
+local function create_config_table(api)
+    return {
+        role = api:getConfiguredRoleName(),
+        name = api:getPlayerName(),
+        host = api:getHost(),
+        port = api:getPort(),
+    }
+end
+
+_G.multitode = _G.multitode or {}
+multitode.net = multitode.net or {
+    handlers = {}
+}
+
+local bridgeApiClass
+local api
+multitode.getApi = function()
+    if bridgeApiClass == nil then
+        bridgeApiClass = luajava.bindClass("dev.multitode.bridge.shared.BridgeApi")
+    end
+
+    if api == nil then
+        api = bridgeApiClass.INSTANCE
+    end
+
+    return api
+end
+
+multitode.version = multitode.getApi():getVersion()
+
+multitode.init = function(role)
+    if role ~= nil then
+        multitode.getApi():configureRole(role)
+    end
+
+    multitode.getApi():initialize()
+    logger:i("Bridge initialized with role %s", multitode.getApi():getRoleName())
+end
+
+multitode.start = function(role)
+    if role ~= nil then
+        multitode.getApi():configureRole(role)
+    end
+    local bridge = multitode.getApi():start()
+    logger:i("Bridge started as %s (%s)", multitode.getApi():getRoleName(), multitode.getApi():getLifecycleStateName())
+    return bridge
+end
+
+multitode.stop = function()
+    multitode.getApi():stop()
+    logger:i("Bridge stopped")
+end
+
+multitode.state = function()
+    local api = multitode.getApi()
     return {
         initialized = api:isInitialized(),
         role = api:getRoleName(),
@@ -223,7 +208,56 @@ local function create_state_table(api)
     }
 end
 
-local function create_session_table(api)
+multitode.configure = function(config)
+    if config == nil then
+        return create_config_table(multitode.getApi())
+    end
+
+    for key, value in pairs(config) do
+        apply_config_value(multitode.getApi(), key, value)
+    end
+
+    logger:i("Bridge config updated: %s", multitode.getApi():describeConfig())
+    return create_config_table(multitode.getApi())
+end
+
+multitode.resetConfig = function()
+    multitode.getApi():resetConfig()
+    logger:i("Bridge config reset: %s", multitode.getApi():describeConfig())
+    return create_config_table(multitode.getApi())
+end
+
+multitode.getConfig = function()
+    return create_config_table(multitode.getApi())
+end
+
+multitode.saveConfig = function()
+    multitode.getApi():saveConfig()
+    logger:i("Bridge config saved to %s", multitode.getApi():getConfigFilePath())
+end
+
+multitode.loadConfig = function()
+    local loaded = multitode.getApi():loadConfig()
+    if loaded then
+        logger:i("Bridge config loaded from %s", multitode.getApi():getConfigFilePath())
+    else
+        logger:i("Bridge config file not found at %s", multitode.getApi():getConfigFilePath())
+    end
+
+    return loaded, create_config_table(multitode.getApi())
+end
+
+multitode.validateConfig = function()
+    local validationError = multitode.getApi():getConfigValidationError()
+    if validationError == nil then
+        return true, nil
+    end
+
+    return false, validationError
+end
+
+multitode.getSessionInfo = function()
+    local api = multitode.getApi()
     return {
         sessionId = api:getSessionId(),
         localPlayerId = api:getLocalPlayerId(),
@@ -233,129 +267,16 @@ local function create_session_table(api)
     }
 end
 
-local function create_config_table(api)
-    return {
-        role = api:getConfiguredRoleName(),
-        name = api:getPlayerName(),
-        host = api:getHost(),
-        port = api:getPort(),
-        listenPort = api:getListenPort(),
-        autoStart = api:isAutoStart(),
-        autoConnect = api:isAutoConnect(),
-        snapshotIntervalTicks = api:getSnapshotIntervalTicks(),
-        verboseLogging = api:isVerboseLogging(),
-        logCommands = api:isLogCommands(),
-        logDesyncs = api:isLogDesyncs()
-    }
-end
-
-_G.multitode = _G.multitode or {}
-multitode.net = multitode.net or {
-    handlers = {}
-}
-
-multitode.getBridgeApi = function()
-    return get_bridge_api()
-end
-
-multitode.init = function(role)
-    local api = get_bridge_api()
-    if role ~= nil then
-        api:configureRole(normalize_role(role))
-    end
-    local bridge = api:initialize()
-    logger:i("Bridge initialized with role %s", api:getRoleName())
-    return bridge
-end
-
-multitode.start = function(role)
-    local api = get_bridge_api()
-    if role ~= nil then
-        api:configureRole(normalize_role(role))
-    end
-    local bridge = api:start()
-    logger:i("Bridge started as %s (%s)", api:getRoleName(), api:getLifecycleStateName())
-    return bridge
-end
-
-multitode.stop = function()
-    local api = get_bridge_api()
-    api:stop()
-    logger:i("Bridge stopped")
-end
-
-multitode.state = function()
-    local api = get_bridge_api()
-    return create_state_table(api)
-end
-
-multitode.configure = function(config)
-    local api = get_bridge_api()
-    if config == nil then
-        return create_config_table(api)
-    end
-
-    for key, value in pairs(config) do
-        apply_config_value(api, key, value)
-    end
-
-    logger:i("Bridge config updated: %s", api:describeConfig())
-    return create_config_table(api)
-end
-
-multitode.resetConfig = function()
-    local api = get_bridge_api()
-    api:resetConfig()
-    logger:i("Bridge config reset: %s", api:describeConfig())
-    return create_config_table(api)
-end
-
-multitode.getConfig = function()
-    return create_config_table(get_bridge_api())
-end
-
-multitode.saveConfig = function()
-    local api = get_bridge_api()
-    api:saveConfig()
-    logger:i("Bridge config saved to %s", api:getConfigFilePath())
-end
-
-multitode.loadConfig = function()
-    local api = get_bridge_api()
-    local loaded = api:loadConfig()
-    if loaded then
-        logger:i("Bridge config loaded from %s", api:getConfigFilePath())
-    else
-        logger:i("Bridge config file not found at %s", api:getConfigFilePath())
-    end
-
-    return loaded, create_config_table(api)
-end
-
-multitode.validateConfig = function()
-    local api = get_bridge_api()
-    local validationError = api:getConfigValidationError()
-    if validationError == nil then
-        return true, nil
-    end
-
-    return false, validationError
-end
-
-multitode.getSessionInfo = function()
-    return create_session_table(get_bridge_api())
-end
-
 multitode.describeSession = function()
-    return get_bridge_api():describeSession()
+    return multitode.getApi():describeSession()
 end
 
 multitode.describePeers = function()
-    return get_bridge_api():describePeers()
+    return multitode.getApi():describePeers()
 end
 
 multitode.hasPeers = function()
-    return get_bridge_api():hasPeers()
+    return multitode.getApi():hasPeers()
 end
 
 multitode.net.encodePayload = function(payload)
@@ -409,7 +330,7 @@ end
 
 multitode.net.sendToHost = function(messageChannel, messageName, payload)
     assert_user_channel(messageChannel)
-    local sent = get_bridge_api():sendLuaMessageToHost(messageChannel, messageName, multitode.net.encodePayload(payload))
+    local sent = multitode.getApi():sendLuaMessageToHost(messageChannel, messageName, multitode.net.encodePayload(payload))
     if not sent then
         error("failed to send message to host")
     end
@@ -417,7 +338,7 @@ end
 
 multitode.net.sendToPeer = function(playerId, messageChannel, messageName, payload)
     assert_user_channel(messageChannel)
-    local sent = get_bridge_api():sendLuaMessageToPeer(tonumber(playerId), messageChannel, messageName, multitode.net.encodePayload(payload))
+    local sent = multitode.getApi():sendLuaMessageToPeer(tonumber(playerId), messageChannel, messageName, multitode.net.encodePayload(payload))
     if not sent then
         error("failed to send message to peer")
     end
@@ -425,18 +346,18 @@ end
 
 multitode.net.broadcast = function(messageChannel, messageName, payload)
     assert_user_channel(messageChannel)
-    local sent = get_bridge_api():broadcastLuaMessage(messageChannel, messageName, multitode.net.encodePayload(payload))
+    local sent = multitode.getApi():broadcastLuaMessage(messageChannel, messageName, multitode.net.encodePayload(payload))
     if not sent then
         error("failed to broadcast message")
     end
 end
 
 multitode.net.getPendingCount = function()
-    return get_bridge_api():getPendingLuaMessageCount()
+    return multitode.getApi():getPendingLuaMessageCount()
 end
 
 multitode.net.poll = function()
-    local rawMessageJson = get_bridge_api():pollInboundLuaMessageJson()
+    local rawMessageJson = multitode.getApi():pollInboundLuaMessageJson()
     if rawMessageJson == nil then
         return nil
     end
@@ -445,8 +366,10 @@ multitode.net.poll = function()
 end
 
 multitode.net.dispatchPending = function(limit)
+    if limit == nil then return end
+
     local processed = 0
-    local maxCount = limit or 100
+    local maxCount = limit
 
     while processed < maxCount do
         local envelope = multitode.net.poll()
@@ -479,36 +402,36 @@ multitode.net.dispatchPending = function(limit)
 end
 
 multitode.net.enableAutoDispatch = function(limit)
-    if autoDispatchRegistered then
+    if autoDispatchRegistered or limit == nil then
         return
     end
 
     local Render = com.prineside.tdi2.events.global.Render.class
     C.Game.EVENTS:getListeners(Render):add(C.Listener(function(_)
-        multitode.net.dispatchPending(limit or 100)
+        multitode.net.dispatchPending(limit)
     end))
     autoDispatchRegistered = true
-    logger:i("Enabled automatic Multitode message dispatch")
+    logger:i("Enabled automatic message dispatch")
 end
 
 multitode.approveQueuedAction = function(targetTick, actionString)
-    get_bridge_api():approveQueuedAction(tonumber(targetTick), tostring(actionString))
+    multitode.getApi():approveQueuedAction(tonumber(targetTick), tostring(actionString))
 end
 
 multitode.consumeApprovedQueuedAction = function(targetTick, actionString)
-    return get_bridge_api():consumeApprovedQueuedAction(tonumber(targetTick), tostring(actionString))
+    return multitode.getApi():consumeApprovedQueuedAction(tonumber(targetTick), tostring(actionString))
 end
 
 multitode.resetApprovedQueuedActions = function()
-    get_bridge_api():resetApprovedQueuedActions()
+    multitode.getApi():resetApprovedQueuedActions()
 end
 
 multitode.savePendingStartupSync = function(payload)
-    get_bridge_api():savePendingStartupSyncJson(encode_json_value(payload))
+    multitode.getApi():savePendingStartupSyncJson(encode_json_value(payload))
 end
 
 multitode.getPendingStartupSync = function()
-    local rawJson = get_bridge_api():getPendingStartupSyncJson()
+    local rawJson = multitode.getApi():getPendingStartupSyncJson()
     if rawJson == nil then
         return nil
     end
@@ -517,19 +440,19 @@ multitode.getPendingStartupSync = function()
 end
 
 multitode.clearPendingStartupSync = function()
-    get_bridge_api():clearPendingStartupSync()
+    multitode.getApi():clearPendingStartupSync()
 end
 
 multitode.captureCurrentGameSnapshotBase64 = function()
-    return get_bridge_api():captureCurrentGameSnapshotBase64()
+    return multitode.getApi():captureCurrentGameSnapshotBase64()
 end
 
 multitode.restoreGameSnapshotBase64 = function(snapshotBase64, gameStartTimestamp)
-    get_bridge_api():restoreGameSnapshotBase64(tostring(snapshotBase64), tonumber(gameStartTimestamp) or 0)
+    multitode.getApi():restoreGameSnapshotBase64(tostring(snapshotBase64), tonumber(gameStartTimestamp) or 0)
 end
 
 multitode.isInitialized = function()
-    return get_bridge_api():isInitialized()
+    return multitode.getApi():isInitialized()
 end
 
 multitode.describe = function()
@@ -542,30 +465,27 @@ multitode.describe = function()
     )
 end
 
-local function bootstrap_saved_config()
-    local loaded, config = multitode.loadConfig()
-    if not loaded then
-        return
-    end
+multitode.net.enableAutoDispatch(128)
 
-    local valid, validationError = multitode.validateConfig()
-    if not valid then
-        logger:e("Saved bridge config is invalid: %s", validationError)
-        return
-    end
-
-    logger:i("Saved bridge config applied: role=%s player=%s", tostring(config.role), tostring(config.name))
-    if config.autoStart then
-        local state = multitode.state()
-        if state.initialized and state.lifecycleState == "RUNNING" then
-            logger:i("Bridge already running, skipping auto-start during script bootstrap")
-            return
-        end
-
-        multitode.start()
-    end
+-- Bootstrap config --
+local loaded, config = multitode.loadConfig()
+if not loaded then
+    return
 end
 
-logger:i("Multitode Lua API loaded")
-multitode.net.enableAutoDispatch(100)
-bootstrap_saved_config()
+local valid, validationError = multitode.validateConfig()
+if not valid then
+    logger:e("Saved bridge config is invalid: %s", validationError)
+    return
+end
+
+logger:i("Saved bridge config applied: role=%s player=%s", tostring(config.role), tostring(config.name))
+
+local state = multitode.state()
+if (state.initialized and state.lifecycleState == "RUNNING") ~= true then
+    multitode.start()
+end
+----------------------
+
+logger:i("# Multitode "..multitode.version)
+logger:i("Lua API loaded")

@@ -6,12 +6,12 @@ multitode.itd = multitode.itd or {}
 local itd = multitode.itd
 
 itd.enforceInterception = true
-itd.actionDelay = 5
 itd.allowLocalActionDepth = 0
 itd.installedSession = nil
 itd.seenQueuedActions = itd.seenQueuedActions or {}
-itd.lastAutoForceWaveEnabled = itd.lastAutoForceWaveEnabled
-itd.lastSpeed = nil
+itd.lastSpeed = 1
+
+itd.actionDelayMs = 200
 
 local function get_session_info()
     local ok, info = pcall(multitode.getSessionInfo)
@@ -31,54 +31,27 @@ local function get_bridge_role()
     return state.role
 end
 
-local function get_current_systems()
-    local ok, systems = pcall(function()
-        return S
-    end)
-    if not ok or systems == nil or systems.events == nil then
-        return nil
-    end
-
-    return systems
+local function get_current_tick()
+    return S.state.updateNumber
 end
 
-local function get_current_tick()
-    local systems = get_current_systems()
-    if systems == nil or systems.state == nil then
-        return -1
-    end
-
-    local updateNumber = systems.state.updateNumber
-    if updateNumber == nil then
-        return -1
-    end
-
-    return tonumber(updateNumber) or -1
+local function get_current_tickrate()
+    return S.gameValue:getTickRate()
 end
 
 local function get_current_speed()
-    local systems = get_current_systems()
-    if systems == nil or systems.state == nil then
-        return -1
-    end
-
-    local speed = systems.state:getGameSpeed()
-
-    return speed
+    return S.state:getGameSpeed()
 end
 
 local function set_current_speed(speed)
-    local systems = get_current_systems()
-    if systems == nil or systems.state == nil then
-        return -1
-    end
-
-    systems.state:setGameSpeed(speed)
+    S.state:setGameSpeed(speed)
 end
 
 local function send_action_to_host(actionName, payload)
     local currentTick = get_current_tick()
-    local actionDelay = tonumber(itd.actionDelay) or 2
+
+    local actionDelay = math.ceil((itd.actionDelayMs / (1000 / get_current_tickrate())) *  itd.lastSpeed)
+
     if actionDelay < 0 then
         actionDelay = 0
     end
@@ -300,24 +273,6 @@ local function inspect_queued_actions(systems)
     end), C.EventListeners.PRIORITY_HIGHEST)
 end
 
-local function try_get_random_state(random)
-    if random == nil then
-        return nil, nil
-    end
-
-    local ok0, state0 = pcall(function()
-        return random:getState(0)
-    end)
-    local ok1, state1 = pcall(function()
-        return random:getState(1)
-    end)
-    if not ok0 or not ok1 then
-        return nil, nil
-    end
-
-    return state0, state1
-end
-
 local function install_game_speed_probe(systems)
     systems.events:getListeners(C.GameStateTick):addStateAffectingWithPriority(C.Listener(function(_)
         local current_speed = get_current_speed()
@@ -339,37 +294,6 @@ local function install_game_speed_probe(systems)
     end), C.EventListeners.PRIORITY_HIGHEST)
 end
 
-local function install_auto_wave_probe(systems)
-    itd.lastAutoForceWaveEnabled = systems.wave:isAutoForceWaveEnabled()
-
-    systems.events:getListeners(C.GameStateTick):addStateAffectingWithPriority(C.Listener(function(_)
-        if itd.isAuthoritativeApplyActive() then
-            return
-        end
-
-        local sessionInfo = get_session_info()
-        if sessionInfo == nil or not sessionInfo.sessionActive then
-            return
-        end
-
-        local enabled = systems.wave:isAutoForceWaveEnabled()
-        if enabled == itd.lastAutoForceWaveEnabled then
-            return
-        end
-
-        itd.lastAutoForceWaveEnabled = enabled
-        if get_bridge_role() == "CLIENT" then
-            logger:i("Ignoring client-side auto wave toggle observation enabled=%s tick=%s", tostring(enabled), tostring(get_current_tick()))
-            return
-        end
-
-        logger:i("Captured auto wave change enabled=%s tick=%s", tostring(enabled), tostring(get_current_tick()))
-        capture_action("AWC", {
-            enabled = enabled
-        })
-    end), C.EventListeners.PRIORITY_LOWEST)
-end
-
 local function install_session_listeners(systems)
     if systems == nil or systems.events == nil then
         logger:i("Skipping ITD interceptor install: no active game systems")
@@ -382,20 +306,17 @@ local function install_session_listeners(systems)
 
     inspect_queued_actions(systems)
     install_game_speed_probe(systems)
-    install_auto_wave_probe(systems)
 
-    itd.lastAutoForceWaveEnabled = systems.wave:isAutoForceWaveEnabled()
     itd.installedSession = systems
     logger:i("Installed ITD gameplay interceptors for current session")
     return true
 end
 
 local function try_install_for_current_session()
-    local systems = get_current_systems()
-    if systems ~= nil then
+    if S ~= nil then
         logger:i("Attempting ITD interceptor install for current session")
     end
-    install_session_listeners(systems)
+    install_session_listeners(S)
 end
 
 C.Game.EVENTS:getListeners(C.SystemsSetup):add(C.Listener(function(_)

@@ -31,14 +31,14 @@ public final class HostServer {
         }
 
         try {
-            serverSocket = new ServerSocket(context.getSessionConfig().getNetwork().getListenPort());
+            serverSocket = new ServerSocket(context.getSessionConfig().getNetwork().getPort());
             running.set(true);
             acceptThread = new Thread(this::acceptLoop, "multitode-host-accept");
             acceptThread.setDaemon(true);
             acceptThread.start();
             LOGGER.i("Host server listening on %s:%s", serverSocket.getInetAddress().getHostAddress(), serverSocket.getLocalPort());
         } catch (IOException exception) {
-            throw new IllegalStateException("Failed to start host server on port " + context.getSessionConfig().getNetwork().getListenPort(), exception);
+            throw new IllegalStateException("Failed to start host server on port " + context.getSessionConfig().getNetwork().getPort(), exception);
         }
     }
 
