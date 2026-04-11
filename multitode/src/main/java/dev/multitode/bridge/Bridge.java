@@ -9,7 +9,7 @@ import dev.multitode.bridge.shared.SessionRole;
 import dev.multitode.bridge.shared.SharedModule;
 
 public final class Bridge {
-    private static final String VERSION = "v0.2";
+    private static final String VERSION = "v0.2.1";
 
     private final BridgeContext context;
     private final SharedModule sharedModule;

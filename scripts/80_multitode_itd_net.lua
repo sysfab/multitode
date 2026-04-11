@@ -10,7 +10,6 @@ itdNet.handlersRegistered = itdNet.handlersRegistered or false
 local MIN_ACTION_LEAD_TICKS = 2
 
 local actionClassByType = {
-    S = C.GameSpeedChange,
     BT = C.BuildTowerAction,
     UT = C.UpgradeTowerAction,
     ST = C.SellTowerAction,

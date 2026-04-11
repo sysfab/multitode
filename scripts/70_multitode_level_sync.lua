@@ -18,27 +18,8 @@ levelSync.lastReceivedStartupSyncId = levelSync.lastReceivedStartupSyncId or 0
 
 local SNAPSHOT_CHUNK_SIZE = 32000
 
-local function get_role()
-    local ok, state = pcall(multitode.state)
-    if not ok or state == nil then
-        return nil
-    end
-
-    return state.role
-end
-
-local function get_session_info()
-    local ok, info = pcall(multitode.getSessionInfo)
-    if not ok then
-        return nil
-    end
-
-    return info
-end
-
 local function should_handle_client_level_sync()
-    local role = get_role()
-    return role == "CLIENT"
+    return multitode.state().role == "CLIENT"
 end
 
 local function get_current_basic_level_name()
@@ -149,12 +130,12 @@ local function broadcast_snapshot_chunks(startupPayload)
 end
 
 local function maybe_announce_current_level()
-    local sessionInfo = get_session_info()
+    local sessionInfo = multitode.getSessionInfo()
     if sessionInfo == nil or not sessionInfo.sessionActive then
         return
     end
 
-    local role = get_role()
+    local role = multitode.state().role
     if role ~= "HOST" and role ~= "HOST_AND_CLIENT" then
         return
     end

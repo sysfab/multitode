@@ -115,10 +115,6 @@ local function decode_json_value(jsonValue)
     error("unsupported JsonValue type")
 end
 
-local function decode_json_string(json)
-    return decode_json_value(jsonReader:parse(json))
-end
-
 local function assert_user_channel(messageChannel)
     if messageChannel == nil or tostring(messageChannel) == "" then
         error("messageChannel must not be blank")
@@ -287,7 +283,7 @@ multitode.net.encodePayload = function(payload)
 end
 
 multitode.net.decodePayload = function(payloadJson)
-    return decode_json_string(payloadJson)
+    return decode_json_value(jsonReader:parse(payloadJson))
 end
 
 multitode.net.on = function(messageChannel, messageName, handler)
@@ -362,7 +358,7 @@ multitode.net.poll = function()
         return nil
     end
 
-    return decode_json_string(rawMessageJson)
+    return decode_json_value(jsonReader:parse(rawMessageJson))
 end
 
 multitode.net.dispatchPending = function(limit)
@@ -436,7 +432,7 @@ multitode.getPendingStartupSync = function()
         return nil
     end
 
-    return decode_json_string(rawJson)
+    return decode_json_value(jsonReader:parse(rawJson))
 end
 
 multitode.clearPendingStartupSync = function()
