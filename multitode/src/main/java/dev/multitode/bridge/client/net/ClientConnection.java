@@ -76,6 +76,7 @@ public final class ClientConnection {
         try {
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MILLIS);
             socket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
+            socket.setTcpNoDelay(true);
 
             DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
             DataInputStream inputStream = new DataInputStream(socket.getInputStream());

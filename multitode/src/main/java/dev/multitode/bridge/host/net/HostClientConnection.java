@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class HostClientConnection {
     private static final TLog LOGGER = TLog.forTag("multitode/HostClientConnection");
-    
+
     private static final int SOCKET_TIMEOUT_MILLIS = 10000;
     private static final long PING_INTERVAL_MILLIS = 5000L;
     private static final long INACTIVITY_TIMEOUT_MILLIS = 10000L;
@@ -46,11 +46,14 @@ public final class HostClientConnection {
 
     private void runHandshake() {
         String remoteAddress = socket.getRemoteSocketAddress().toString();
-        try (Socket closableSocket = socket;
-             DataInputStream inputStream = new DataInputStream(closableSocket.getInputStream());
-             DataOutputStream outputStream = new DataOutputStream(closableSocket.getOutputStream())) {
+        try {
+            socket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
+            socket.setTcpNoDelay(true);
+
+            DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+            DataInputStream inputStream = new DataInputStream(socket.getInputStream());
             this.outputStream = outputStream;
-            closableSocket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
+
             HelloPacket helloPacket = PacketCodec.readHello(inputStream);
             LOGGER.i("Received HELLO from %s player=%s role=%s protocol=%s",
                     remoteAddress,
