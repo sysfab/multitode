@@ -37,18 +37,20 @@ public final class HostModule extends AbstractBridgeModule {
     }
 
     public boolean broadcastLuaMessage(String messageChannel, String messageName, int senderPlayerId, String payloadJson) {
-        if (hostServer == null) {
+        HostServer server = hostServer;
+        if (server == null) {
             return false;
         }
 
-        return hostServer.broadcastLuaMessage(messageChannel, messageName, senderPlayerId, payloadJson);
+        return server.broadcastLuaMessage(messageChannel, messageName, senderPlayerId, payloadJson);
     }
 
     public boolean sendLuaMessageToPeer(int playerId, String messageChannel, String messageName, int senderPlayerId, String payloadJson) {
-        if (hostServer == null) {
+        HostServer server = hostServer;
+        if (server == null) {
             return false;
         }
 
-        return hostServer.sendLuaMessageToPeer(playerId, messageChannel, messageName, senderPlayerId, payloadJson);
+        return server.sendLuaMessageToPeer(playerId, messageChannel, messageName, senderPlayerId, payloadJson);
     }
 }

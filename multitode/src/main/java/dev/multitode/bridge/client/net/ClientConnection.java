@@ -18,6 +18,7 @@ import dev.multitode.bridge.shared.net.ProtocolVersion;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -26,15 +27,18 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class ClientConnection {
     private static final TLog LOGGER = TLog.forTag("multitode/ClientConnection");
     private static final int SOCKET_TIMEOUT_MILLIS = 1000;
+    private static final int CONNECT_TIMEOUT_MILLIS = 5000;
     private static final long PING_INTERVAL_MILLIS = 2000L;
     private static final long INACTIVITY_TIMEOUT_MILLIS = 10000L;
+    private static final int MAX_RECONNECT_ATTEMPTS = 5;
+    private static final long RECONNECT_BASE_DELAY_MILLIS = 2000L;
 
     private final BridgeContext context;
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicReference<ConnectionState> state = new AtomicReference<>(ConnectionState.DISCONNECTED);
     private Thread connectionThread;
-    private Socket activeSocket;
-    private DataOutputStream activeOutputStream;
+    private volatile Socket activeSocket;
+    private volatile DataOutputStream activeOutputStream;
 
     public ClientConnection(BridgeContext context) {
         this.context = context;
@@ -47,7 +51,7 @@ public final class ClientConnection {
         }
 
         running.set(true);
-        connectionThread = new Thread(this::runConnection, "multitode-client-connection");
+        connectionThread = new Thread(this::runConnectionLoop, "multitode-client-connection");
         connectionThread.setDaemon(true);
         connectionThread.start();
     }
@@ -55,6 +59,15 @@ public final class ClientConnection {
     public synchronized void stop() {
         state.set(ConnectionState.DISCONNECTING);
         running.set(false);
+        // Tell the host we are leaving so it can drop us from the lobby
+        // immediately instead of waiting out the inactivity timeout.
+        DataOutputStream out = activeOutputStream;
+        if (out != null) {
+            try {
+                PacketCodec.writeDisconnect(out, new DisconnectPacket("Client disconnecting"));
+            } catch (Exception ignored) {
+            }
+        }
         closeActiveSocket();
         if (connectionThread != null) {
             connectionThread.interrupt();
@@ -66,16 +79,70 @@ public final class ClientConnection {
         return state.get();
     }
 
-    private void runConnection() {
+    private void runConnectionLoop() {
         String host = context.getSessionConfig().getNetwork().getHost();
         int port = context.getSessionConfig().getNetwork().getPort();
+        int attempt = 0;
 
-        try (Socket socket = new Socket(host, port);
-             DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-             DataInputStream inputStream = new DataInputStream(socket.getInputStream())) {
-            activeSocket = socket;
-            activeOutputStream = outputStream;
+        while (running.get()) {
+            attempt++;
+            LOGGER.i("Connection attempt %d to %s:%s", attempt, host, port);
+
+            try {
+                attemptConnection(host, port);
+            } catch (IOException exception) {
+                LOGGER.w("Connection attempt %d failed: %s", attempt, exception.getMessage());
+            }
+
+            if (!running.get()) {
+                break;
+            }
+
+            if (state.get() == ConnectionState.ACTIVE) {
+                attempt = 0;
+                continue;
+            }
+
+            if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+                LOGGER.e("Max reconnect attempts (%d) reached, giving up", MAX_RECONNECT_ATTEMPTS);
+                break;
+            }
+
+            long delay = RECONNECT_BASE_DELAY_MILLIS * Math.min(attempt, 5);
+            LOGGER.i("Reconnecting in %d ms...", delay);
+            try {
+                Thread.sleep(delay);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        state.set(ConnectionState.DISCONNECTED);
+        context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
+        activeSocket = null;
+        activeOutputStream = null;
+        running.set(false);
+        LOGGER.i("Client connection thread exited");
+    }
+
+    private void attemptConnection(String host, int port) throws IOException {
+        Socket socket = new Socket();
+        try {
+            socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MILLIS);
             socket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
+            // Small, frequent gameplay packets: Nagle would batch them and add
+            // latency on top of the action lead.
+            try {
+                socket.setTcpNoDelay(true);
+            } catch (IOException ignored) {
+            }
+            activeSocket = socket;
+
+            DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+            DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+            activeOutputStream = outputStream;
+
             state.set(ConnectionState.HANDSHAKE);
             PacketCodec.writeHello(outputStream, new HelloPacket(
                     ProtocolVersion.CURRENT,
@@ -115,11 +182,13 @@ public final class ClientConnection {
         } catch (IOException exception) {
             state.set(ConnectionState.DISCONNECTED);
             context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
-            LOGGER.w("Failed to connect to %s:%s - %s", host, port, exception.getMessage());
+            throw exception;
         } finally {
-            activeSocket = null;
-            activeOutputStream = null;
-            running.set(false);
+            closeActiveSocket();
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
         }
     }
 
@@ -135,7 +204,9 @@ public final class ClientConnection {
             }
 
             if (now - lastPingAt >= PING_INTERVAL_MILLIS) {
-                PacketCodec.writePing(outputStream, new PingPacket(now));
+                synchronized (this) {
+                    PacketCodec.writePing(outputStream, new PingPacket(now));
+                }
                 lastPingAt = now;
             }
 
@@ -144,7 +215,21 @@ public final class ClientConnection {
                 lastReceivedAt = System.currentTimeMillis();
                 context.getSessionRegistry().getLocalSessionInfo().setLastPacketAtMillis(lastReceivedAt);
                 if (packetType == PacketType.PING) {
-                    PacketCodec.readPingPayload(inputStream);
+                    PingPacket pingPacket = PacketCodec.readPingPayload(inputStream);
+                    long sentAt = pingPacket.getSentAtMillis();
+                    if (sentAt > 0) {
+                        // A request: answer with the negated timestamp so the
+                        // sender can measure RTT. Replies are never answered.
+                        synchronized (this) {
+                            PacketCodec.writePing(outputStream, new PingPacket(-sentAt));
+                        }
+                    } else if (sentAt < 0) {
+                        // A reply to our own ping: sentAt is -sentTime.
+                        long rtt = System.currentTimeMillis() + sentAt;
+                        if (rtt >= 0 && rtt < 60000) {
+                            context.getSessionRegistry().getLocalSessionInfo().setLastRttMillis(rtt);
+                        }
+                    }
                     continue;
                 }
 
@@ -179,25 +264,25 @@ public final class ClientConnection {
     }
 
     private synchronized void closeActiveSocket() {
-        if (activeSocket == null) {
-            activeOutputStream = null;
-            return;
-        }
-
-        try {
-            activeSocket.close();
-        } catch (IOException ignored) {
-        }
+        Socket socket = activeSocket;
         activeOutputStream = null;
+        activeSocket = null;
+        if (socket != null) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+        }
     }
 
     public synchronized boolean sendLuaMessageToHost(String messageChannel, String messageName, int senderPlayerId, String payloadJson) {
-        if (!running.get() || activeOutputStream == null) {
+        DataOutputStream out = activeOutputStream;
+        if (!running.get() || out == null) {
             return false;
         }
 
         try {
-            PacketCodec.writeLuaMessage(activeOutputStream, new LuaMessagePacket(messageChannel, messageName, senderPlayerId, payloadJson));
+            PacketCodec.writeLuaMessage(out, new LuaMessagePacket(messageChannel, messageName, senderPlayerId, payloadJson));
             return true;
         } catch (IOException exception) {
             LOGGER.w("Failed to send Lua message to host: %s", exception.getMessage());

@@ -76,6 +76,23 @@ public final class HostSession {
         context.getSessionRegistry().removePeer(playerId);
     }
 
+    public void shutdownAll(String reason) {
+        // Notify every connected client before dropping them, so clients can
+        // leave the lobby immediately instead of timing out / reconnecting.
+        for (HostClientConnection connection : activeConnections) {
+            try {
+                connection.sendDisconnect(reason);
+            } catch (Exception ignored) {
+            }
+        }
+        for (HostClientConnection connection : activeConnections) {
+            try {
+                connection.stop();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     public boolean broadcastLuaMessage(String messageChannel, String messageName, int senderPlayerId, String payloadJson) {
         boolean sent = false;
         LuaMessagePacket packet = new LuaMessagePacket(messageChannel, messageName, senderPlayerId, payloadJson);

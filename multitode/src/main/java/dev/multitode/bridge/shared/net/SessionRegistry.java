@@ -30,7 +30,20 @@ public final class SessionRegistry {
     }
 
     public int getConnectedPeerCount() {
-        return peersByPlayerId.size();
+        // Exclude our own loopback connection: on HOST_AND_CLIENT the host's
+        // own client registers as a peer, but it must not count as a remote peer.
+        int localPlayerId = localSessionInfo.getLocalPlayerId();
+        if (localPlayerId == 0) {
+            return peersByPlayerId.size();
+        }
+
+        int count = 0;
+        for (Integer playerId : peersByPlayerId.keySet()) {
+            if (playerId != null && playerId != localPlayerId) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public List<PeerInfo> getPeers() {

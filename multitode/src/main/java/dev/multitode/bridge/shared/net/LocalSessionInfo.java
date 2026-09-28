@@ -1,12 +1,13 @@
 package dev.multitode.bridge.shared.net;
 
 public final class LocalSessionInfo {
-    private String sessionId;
-    private int localPlayerId;
-    private ConnectionState connectionState = ConnectionState.DISCONNECTED;
-    private String remoteAddress;
-    private long connectedAtMillis;
-    private long lastPacketAtMillis;
+    private volatile String sessionId;
+    private volatile int localPlayerId;
+    private volatile ConnectionState connectionState = ConnectionState.DISCONNECTED;
+    private volatile String remoteAddress;
+    private volatile long connectedAtMillis;
+    private volatile long lastPacketAtMillis;
+    private volatile long lastRttMillis = -1;
 
     public String getSessionId() {
         return sessionId;
@@ -54,5 +55,13 @@ public final class LocalSessionInfo {
 
     public void setLastPacketAtMillis(long lastPacketAtMillis) {
         this.lastPacketAtMillis = lastPacketAtMillis;
+    }
+
+    public long getLastRttMillis() {
+        return lastRttMillis;
+    }
+
+    public void setLastRttMillis(long lastRttMillis) {
+        this.lastRttMillis = lastRttMillis;
     }
 }

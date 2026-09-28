@@ -9,6 +9,7 @@ public final class PeerInfo {
     private final String remoteAddress;
     private final long connectedAtMillis;
     private volatile long lastPacketAtMillis;
+    private volatile long lastRttMillis = -1;
     private volatile ConnectionState connectionState;
 
     public PeerInfo(int playerId, String playerName, SessionRole requestedRole, String remoteAddress, long connectedAtMillis) {
@@ -49,6 +50,14 @@ public final class PeerInfo {
         this.lastPacketAtMillis = lastPacketAtMillis;
     }
 
+    public long getLastRttMillis() {
+        return lastRttMillis;
+    }
+
+    public void setLastRttMillis(long lastRttMillis) {
+        this.lastRttMillis = lastRttMillis;
+    }
+
     public ConnectionState getConnectionState() {
         return connectionState;
     }
@@ -64,6 +73,7 @@ public final class PeerInfo {
                 + ", remoteAddress=" + remoteAddress
                 + ", connectionState=" + connectionState.name()
                 + ", connectedAtMillis=" + connectedAtMillis
-                + ", lastPacketAtMillis=" + lastPacketAtMillis;
+                + ", lastPacketAtMillis=" + lastPacketAtMillis
+                + ", rtt=" + (lastRttMillis >= 0 ? lastRttMillis + "ms" : "?");
     }
 }

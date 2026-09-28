@@ -38,10 +38,11 @@ public final class ClientModule extends AbstractBridgeModule {
     }
 
     public boolean sendLuaMessageToHost(String messageChannel, String messageName, int senderPlayerId, String payloadJson) {
-        if (clientConnection == null) {
+        ClientConnection conn = clientConnection;
+        if (conn == null) {
             return false;
         }
 
-        return clientConnection.sendLuaMessageToHost(messageChannel, messageName, senderPlayerId, payloadJson);
+        return conn.sendLuaMessageToHost(messageChannel, messageName, senderPlayerId, payloadJson);
     }
 }

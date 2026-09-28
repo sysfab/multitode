@@ -8,7 +8,6 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class HostServer {
     private static final TLog LOGGER = TLog.forTag("multitode/HostServer");
@@ -31,7 +30,9 @@ public final class HostServer {
         }
 
         try {
-            serverSocket = new ServerSocket(context.getSessionConfig().getNetwork().getPort());
+            serverSocket = new ServerSocket();
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(new java.net.InetSocketAddress(context.getSessionConfig().getNetwork().getPort()));
             running.set(true);
             acceptThread = new Thread(this::acceptLoop, "multitode-host-accept");
             acceptThread.setDaemon(true);
@@ -47,6 +48,13 @@ public final class HostServer {
             return;
         }
 
+        // Drop existing client connections too: otherwise they stay attached to
+        // this (now dead) session and post-restart broadcasts go nowhere.
+        try {
+            hostSession.shutdownAll("Host shutting down");
+        } catch (Exception exception) {
+            LOGGER.w("Failed to shut down host connections: %s", exception.getMessage());
+        }
         closeServerSocket();
         if (acceptThread != null) {
             acceptThread.interrupt();

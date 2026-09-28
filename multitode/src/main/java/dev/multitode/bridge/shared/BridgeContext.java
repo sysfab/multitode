@@ -7,7 +7,7 @@ import java.util.Objects;
 public final class BridgeContext {
     private final SessionConfig sessionConfig;
     private final SessionRegistry sessionRegistry;
-    private BridgeLifecycleState lifecycleState;
+    private volatile BridgeLifecycleState lifecycleState;
 
     public BridgeContext(SessionConfig sessionConfig) {
         this.sessionConfig = Objects.requireNonNull(sessionConfig, "sessionConfig");

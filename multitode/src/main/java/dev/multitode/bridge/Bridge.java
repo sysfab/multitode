@@ -9,7 +9,7 @@ import dev.multitode.bridge.shared.SessionRole;
 import dev.multitode.bridge.shared.SharedModule;
 
 public final class Bridge {
-    private static final String VERSION = "v0.2.1";
+    private static final String VERSION = "v0.2.3";
 
     private final BridgeContext context;
     private final SharedModule sharedModule;
@@ -29,12 +29,29 @@ public final class Bridge {
 
     public void start() {
         context.setLifecycleState(BridgeLifecycleState.STARTING);
-        sharedModule.start();
-        if (context.getRole() == SessionRole.HOST_AND_CLIENT) {
-            hostModule.start();
+        try {
+            sharedModule.start();
+            if (context.getRole() == SessionRole.HOST_AND_CLIENT) {
+                hostModule.start();
+            }
+            clientModule.start();
+            context.setLifecycleState(BridgeLifecycleState.RUNNING);
+        } catch (Exception exception) {
+            try {
+                clientModule.stop();
+            } catch (Exception ignored) {
+            }
+            try {
+                hostModule.stop();
+            } catch (Exception ignored) {
+            }
+            try {
+                sharedModule.stop();
+            } catch (Exception ignored) {
+            }
+            context.setLifecycleState(BridgeLifecycleState.STOPPED);
+            throw exception;
         }
-        clientModule.start();
-        context.setLifecycleState(BridgeLifecycleState.RUNNING);
     }
 
     public void stop() {
