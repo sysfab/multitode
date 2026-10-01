@@ -11,7 +11,7 @@ itd.installedSession = nil
 itd.seenQueuedActions = itd.seenQueuedActions or {}
 itd.lastSpeed = 1
 
-itd.actionDelayMs = 1000
+itd.actionDelayMs = 200
 
 local function send_action_to_host(actionName, payload)
     local currentTick = S.state.updateNumber
