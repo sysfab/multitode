@@ -39,7 +39,6 @@ local actionClassByType = {
 local function deserialize_action(payload, actionType, actionJson)
     local actionClass
     if actionType == "SPD" then
-        if (payload.speed < 1) then payload.speed = 1 end 
         return C.ScriptAction.new_S("multitode.itd.lastSpeed = " .. payload.speed .. " S.state:setGameSpeed(" .. payload.speed .. ")")
     else
         actionClass = actionClassByType[actionType]
