@@ -6,6 +6,9 @@ multitode.itdNet = multitode.itdNet or {}
 local itdNet = multitode.itdNet
 
 itdNet.handlersRegistered = itdNet.handlersRegistered or false
+itdNet.nextActionSequence = itdNet.nextActionSequence or 1
+itdNet.nextExpectedActionSequence = itdNet.nextExpectedActionSequence or 1
+itdNet.pendingAuthoritativeActions = itdNet.pendingAuthoritativeActions or {}
 
 local MIN_ACTION_LEAD_TICKS = 2
 
@@ -129,6 +132,34 @@ local function enqueue_authoritative_action(envelope, sourceLabel, adjustStaleTa
     return true
 end
 
+function itdNet.getNextActionSequence()
+    return itdNet.nextActionSequence
+end
+
+function itdNet.resetClientActionSequence(nextSequence)
+    local sequence = tonumber(nextSequence)
+    if sequence == nil or sequence < 1 or sequence ~= math.floor(sequence) then
+        error("invalid next action sequence")
+    end
+
+    itdNet.nextExpectedActionSequence = sequence
+    itdNet.pendingAuthoritativeActions = {}
+end
+
+local function enqueue_pending_client_actions()
+    while true do
+        local sequence = itdNet.nextExpectedActionSequence
+        local payload = itdNet.pendingAuthoritativeActions[sequence]
+        if payload == nil then
+            return
+        end
+
+        itdNet.pendingAuthoritativeActions[sequence] = nil
+        itdNet.nextExpectedActionSequence = sequence + 1
+        enqueue_authoritative_action(payload, "Client", false)
+    end
+end
+
 local function should_handle_client_action_apply()
     local ok, state = pcall(multitode.state)
     if not ok or state == nil then
@@ -152,8 +183,10 @@ local function ensure_handlers_registered()
             tostring(payload.target_tick)
         )
 
-        multitode.net.broadcast("itd", "action_apply", payload)
+        payload.sequence = itdNet.nextActionSequence
+        itdNet.nextActionSequence = itdNet.nextActionSequence + 1
         enqueue_authoritative_action(payload, "Host", true)
+        multitode.net.broadcast("itd", "action_apply", payload)
     end)
 
     multitode.net.onClient("itd", "action_apply", function(_, payload)
@@ -161,7 +194,20 @@ local function ensure_handlers_registered()
             return
         end
 
-        enqueue_authoritative_action(payload, "Client", false)
+        local sequence = tonumber(payload.sequence)
+        if sequence == nil or sequence < 1 or sequence ~= math.floor(sequence) then
+            logger:e("Received action_apply with invalid sequence %s", tostring(payload.sequence))
+            return
+        end
+        if sequence < itdNet.nextExpectedActionSequence then
+            return
+        end
+        if itdNet.pendingAuthoritativeActions[sequence] ~= nil then
+            return
+        end
+
+        itdNet.pendingAuthoritativeActions[sequence] = payload
+        enqueue_pending_client_actions()
     end)
 
     itdNet.handlersRegistered = true

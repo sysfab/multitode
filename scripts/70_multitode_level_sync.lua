@@ -87,6 +87,7 @@ local function maybe_start_pending_client_level()
     end
 
     multitode.restoreGameSnapshotBase64(snapshotSync.snapshot_base64, snapshotSync.game_start_timestamp)
+    multitode.itdNet.resetClientActionSequence(snapshotSync.next_action_sequence)
     levelSync.lastAppliedStartupSyncId = tonumber(snapshotSync.startup_sync_id) or levelSync.lastAppliedStartupSyncId
     logger:i("Started synced level %s from snapshot id=%s", tostring(levelName), tostring(snapshotSync.startup_sync_id))
     clear_pending_client_level_sync()
@@ -98,6 +99,7 @@ local function build_startup_sync_payload(gameScreen, levelName)
         startup_sync_id = levelSync.nextStartupSyncId,
         level_name = levelName,
         game_start_timestamp = gameScreen.S.gameState.gameStartTimestamp,
+        next_action_sequence = multitode.itdNet.getNextActionSequence(),
         snapshot_base64 = multitode.captureCurrentGameSnapshotBase64(),
     }
 
@@ -113,6 +115,7 @@ local function broadcast_snapshot_chunks(startupPayload)
         startup_sync_id = startupPayload.startup_sync_id,
         level_name = startupPayload.level_name,
         game_start_timestamp = startupPayload.game_start_timestamp,
+        next_action_sequence = startupPayload.next_action_sequence,
         total_chunks = totalChunks,
         total_length = totalLength
     })
@@ -228,6 +231,7 @@ local function ensure_handlers_registered()
             startup_sync_id = startupSyncId,
             level_name = payload.level_name,
             game_start_timestamp = payload.game_start_timestamp,
+            next_action_sequence = payload.next_action_sequence,
             total_chunks = payload.total_chunks,
             chunks = {}
         }
@@ -269,6 +273,7 @@ local function ensure_handlers_registered()
             startup_sync_id = assembly.startup_sync_id,
             level_name = assembly.level_name,
             game_start_timestamp = assembly.game_start_timestamp,
+            next_action_sequence = assembly.next_action_sequence,
             snapshot_base64 = table.concat(assembly.chunks, "")
         }
         levelSync.pendingClientSnapshotChunks = nil
