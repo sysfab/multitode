@@ -73,7 +73,7 @@ local function get_current_tick()
     return tonumber(systems.state.updateNumber) or -1
 end
 
-local function enqueue_authoritative_action(envelope, sourceLabel)
+local function enqueue_authoritative_action(envelope, sourceLabel, adjustStaleTarget)
     local targetTick = tonumber(envelope.target_tick)
     if targetTick == nil then
         error("missing target_tick")
@@ -94,13 +94,13 @@ local function enqueue_authoritative_action(envelope, sourceLabel)
 
     local currentTick = get_current_tick()
     local effectiveTargetTick = targetTick
-    if currentTick >= 0 then
+    if adjustStaleTarget and currentTick >= 0 then
         local minimumTargetTick = currentTick + MIN_ACTION_LEAD_TICKS
         if effectiveTargetTick < minimumTargetTick then
             effectiveTargetTick = minimumTargetTick
         end
     end
-    if currentTick >= 0 and effectiveTargetTick ~= targetTick then
+    if adjustStaleTarget and currentTick >= 0 and effectiveTargetTick ~= targetTick then
         logger:w(
             "%s adjusted stale target tick for %s from %s to %s",
             tostring(sourceLabel),
@@ -153,7 +153,7 @@ local function ensure_handlers_registered()
         )
 
         multitode.net.broadcast("itd", "action_apply", payload)
-        enqueue_authoritative_action(payload, "Host")
+        enqueue_authoritative_action(payload, "Host", true)
     end)
 
     multitode.net.onClient("itd", "action_apply", function(_, payload)
@@ -161,7 +161,7 @@ local function ensure_handlers_registered()
             return
         end
 
-        enqueue_authoritative_action(payload, "Client")
+        enqueue_authoritative_action(payload, "Client", false)
     end)
 
     itdNet.handlersRegistered = true
