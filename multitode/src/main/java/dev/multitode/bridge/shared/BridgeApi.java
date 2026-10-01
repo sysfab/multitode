@@ -385,8 +385,6 @@ public final class BridgeApi {
         systems.createAndSetupNonStateAffectingSystemsAfterDeserialization();
         GameScreen screen = new GameScreen(systems, gameStartTimestamp);
         Game.i.screenManager.setScreen(screen);
-
-        systems.gameState.setGameSpeed(1.0f);
     }
 
     private void validateConfigOrThrow() {
