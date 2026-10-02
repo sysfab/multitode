@@ -39630,9 +39630,10 @@
      +m:getBridge:
      +m:getVersion:
      +m:getConnectedPeerCount:
-     +m:getConfiguredRoleName:
-     +m:getConnectionStateName:
-     +m:getLifecycleStateName:
+      +m:getConfiguredRoleName:
+      +m:getConnectionStateName:
+      +m:getCurrentGameStateHash:
+      +m:getLifecycleStateName:
      +m:getHost:
      +m:getLocalPlayerId:
      +m:getPendingLuaMessageCount:
