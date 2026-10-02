@@ -10,21 +10,32 @@ detection.lastHostHeartbeatTick = detection.lastHostHeartbeatTick or -1
 detection.lastClientHeartbeatTickByPlayer = detection.lastClientHeartbeatTickByPlayer or {}
 detection.pendingHostHeartbeats = detection.pendingHostHeartbeats or {}
 
-local HEARTBEAT_INTERVAL_TICKS = 120
+local HEARTBEAT_INTERVAL_TICKS = 60
+
+-- TODO: FIX NOT WORKING (nil?)
+local function get_current_systems()
+    local currentScreen = C.Game.i.screenManager:getCurrentScreen()
+    if currentScreen == nil or not C.GameScreen:_isInstance(currentScreen) then
+        return nil
+    end
+
+    return currentScreen.S
+end
+
+local function get_current_tick()
+    local systems = get_current_systems()
+    if systems == nil or systems.state == nil or systems.state.updateNumber == nil then
+        return -1
+    end
+
+    return tonumber(systems.state.updateNumber) or -1
+end
 
 local function reset_heartbeat_state()
     detection.lastHostHeartbeatTick = -1
     detection.lastClientHeartbeatTickByPlayer = {}
     detection.pendingHostHeartbeats = {}
     multitode.clearStateHashSamples()
-end
-
-local function get_current_tick()
-    if S == nil or S.state == nil or S.state.updateNumber == nil then
-        return -1
-    end
-
-    return tonumber(S.state.updateNumber) or -1
 end
 
 local function get_hash_sample(tick)
@@ -81,39 +92,7 @@ local function validate_heartbeat(payload)
     return tick, tostring(stateHash)
 end
 
-local function install_heartbeat_listener()
-    if S == nil or S.events == nil or detection.installedSession == S then
-        return
-    end
-
-    reset_heartbeat_state()
-    S.events:getListeners(C.GameStateTick):addStateAffectingWithPriority(C.Listener(function(_)
-        local tick = get_current_tick()
-        if tick < 0 or tick % HEARTBEAT_INTERVAL_TICKS ~= 0 then
-            return
-        end
-
-        local stateHash = get_hash_sample(tick)
-        if stateHash == nil then
-            return
-        end
-
-        process_pending_host_heartbeat(tick)
-
-        local role = multitode.state().role
-        local heartbeat = { tick = tick, state_hash = stateHash }
-        if role == "CLIENT" then
-            multitode.net.sendToHost("itd", "state_heartbeat", heartbeat)
-        elseif role == "HOST_AND_CLIENT" or role == "HOST" then
-            multitode.net.broadcast("itd", "state_heartbeat", heartbeat)
-        end
-    end), C.EventListeners.PRIORITY_HIGHEST)
-
-    detection.installedSession = S
-    logger:i("Installed state heartbeat listener every %s ticks", tostring(HEARTBEAT_INTERVAL_TICKS))
-end
-
-multitode.net.onClient("itd", "state_heartbeat", function(_, payload)
+local function handle_host_heartbeat(_, payload)
     if multitode.state().role ~= "CLIENT" then
         return
     end
@@ -129,9 +108,9 @@ multitode.net.onClient("itd", "state_heartbeat", function(_, payload)
     else
         detection.pendingHostHeartbeats[tick] = hostHash
     end
-end)
+end
 
-multitode.net.onHost("itd", "state_heartbeat", function(ctx, payload)
+local function handle_client_heartbeat(ctx, payload)
     local tick, clientHash = validate_heartbeat(payload)
     if tick == nil then
         return
@@ -157,15 +136,73 @@ multitode.net.onHost("itd", "state_heartbeat", function(ctx, payload)
             tostring(hostHash),
             tostring(clientHash)
         )
+    else
+        logger:i(
+            "No desync for player %s at tick %s",
+            tostring(playerId),
+            tostring(tick)
+        )
+    end
+end
+
+local function install_heartbeat_listener()
+    local systems = get_current_systems()
+    if (systems == nil or systems.events == nil) or (detection.installedSession == systems) then
+        logger:i(
+            "Aborting heartbeat install | Systems present: %s | Already installed: %s",
+            tostring(systems == nil),
+            tostring(detection.installedSession == systems)
+        )
+        return
+    end
+
+    reset_heartbeat_state()
+    systems.events:getListeners(C.GameStateTick):addStateAffectingWithPriority(C.Listener(function(_)
+        local tick = tonumber(systems.state.updateNumber) or -1
+        if tick < 0 or tick % HEARTBEAT_INTERVAL_TICKS ~= 0 then
+            return
+        end
+
+        local stateHash = get_hash_sample(tick)
+        if stateHash == nil then
+            return
+        end
+
+        process_pending_host_heartbeat(tick)
+
+        local role = multitode.state().role
+        local heartbeat = { tick = tick, state_hash = stateHash }
+        if role == "CLIENT" then
+            multitode.net.sendToHost("itd", "state_heartbeat", heartbeat)
+        elseif role == "HOST_AND_CLIENT" or role == "HOST" then
+            multitode.net.broadcast("itd", "state_heartbeat", heartbeat)
+        end
+    end), C.EventListeners.PRIORITY_HIGHEST)
+
+    detection.installedSession = systems
+    logger:i("Installed state heartbeat listener every %s ticks", tostring(HEARTBEAT_INTERVAL_TICKS))
+end
+
+local function schedule_heartbeat_install()
+    C.Threads:i():postRunnable(C.Runnable(function()
+        install_heartbeat_listener()
+    end))
+end
+
+multitode.net.on("itd", "state_heartbeat", function(ctx, payload)
+    if ctx.receiverContext == "CLIENT" then
+        handle_host_heartbeat(ctx, payload)
+    elseif ctx.receiverContext == "HOST" then
+        handle_client_heartbeat(ctx, payload)
     end
 end)
 
 C.Game.EVENTS:getListeners(C.SystemsSetup):add(C.Listener(function(_)
-    install_heartbeat_listener()
+    schedule_heartbeat_install()
 end))
 
 C.Game.EVENTS:getListeners(C.SystemsStateRestore):add(C.Listener(function(_)
-    install_heartbeat_listener()
+    schedule_heartbeat_install()
 end))
 
 install_heartbeat_listener()
