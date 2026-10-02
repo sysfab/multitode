@@ -17,6 +17,8 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -339,6 +341,9 @@ public final class BridgeApi {
 
     public synchronized void saveStateHashSampleJson(int tick, String sampleJson) {
         stateHashSamples.put(tick, sampleJson);
+        if (stateHashSamples.size() > 256) {
+            stateHashSamples.remove(stateHashSamples.keySet().stream().min(Integer::compareTo).orElse(tick));
+        }
     }
 
     public synchronized String getStateHashSampleJson(int tick) {
@@ -347,6 +352,30 @@ public final class BridgeApi {
 
     public synchronized void clearStateHashSamples() {
         stateHashSamples.clear();
+    }
+
+    public synchronized String getCurrentGameStateHash() {
+        Screen currentScreen = Game.i.screenManager.getCurrentScreen();
+        if (!(currentScreen instanceof GameScreen gameScreen) || gameScreen.S == null) {
+            throw new IllegalStateException("Current screen is not an active GameScreen");
+        }
+
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        Output output = new Output(byteStream);
+        gameScreen.S.serialize(output);
+        output.close();
+
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(byteStream.toByteArray());
+            StringBuilder hash = new StringBuilder(digest.length * 2);
+            for (byte value : digest) {
+                hash.append(Character.forDigit((value >>> 4) & 0xF, 16));
+                hash.append(Character.forDigit(value & 0xF, 16));
+            }
+            return hash.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     public synchronized void savePendingStartupSyncJson(String payloadJson) {

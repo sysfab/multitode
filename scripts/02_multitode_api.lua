@@ -422,6 +422,22 @@ multitode.resetApprovedQueuedActions = function()
     multitode.getApi():resetApprovedQueuedActions()
 end
 
+multitode.getCurrentGameStateHash = function()
+    return multitode.getApi():getCurrentGameStateHash()
+end
+
+multitode.saveStateHashSample = function(tick, stateHash)
+    multitode.getApi():saveStateHashSampleJson(tonumber(tick), tostring(stateHash))
+end
+
+multitode.getStateHashSample = function(tick)
+    return multitode.getApi():getStateHashSampleJson(tonumber(tick))
+end
+
+multitode.clearStateHashSamples = function()
+    multitode.getApi():clearStateHashSamples()
+end
+
 multitode.savePendingStartupSync = function(payload)
     multitode.getApi():savePendingStartupSyncJson(encode_json_value(payload))
 end
