@@ -39617,14 +39617,19 @@
      +f:INSTANCE
      +m:configureRole:String
      +m:broadcastLuaMessage:String,String,String
+     +m:beginPauseApply:
      +m:approveQueuedAction:int,String
      +m:captureCurrentGameSnapshotBase64:
+     +m:claimGlobalHook:String
+     +m:claimLevelSyncAnnouncement:String
+     +m:clearLevelSyncAnnouncement:
      +m:clearStateHashSamples:
      +m:clearPendingStartupSync:
      +m:consumeApprovedQueuedAction:int,String
      +m:describeConfig:
      +m:describePeers:
      +m:describeSession:
+     +m:endPauseApply:
      +m:getConfigValidationError:
      +m:getConfigFilePath:
      +m:getBridge:
@@ -39637,6 +39642,8 @@
      +m:getHost:
      +m:getLocalPlayerId:
      +m:getPendingLuaMessageCount:
+     +m:getPacketsReceived:
+     +m:getPacketsSent:
      +m:getPlayerName:
      +m:getPort:
      +m:getRoleName:
@@ -39648,10 +39655,15 @@
      +m:isConfigValid:
      +m:isInitialized:
      +m:hasPeers:
+     +m:isPauseApplyActive:
+     +m:isSynchronizedPauseActive:
      +m:isSessionActive:
      +m:loadConfig:
      +m:pollInboundLuaMessageJson:
+     +m:nextPauseRevision:
+     +m:nextLevelSyncId:
      +m:resetApprovedQueuedActions:
+     +m:releaseLevelSyncAnnouncement:String
      +m:resetConfig:
      +m:restoreGameSnapshotBase64:String,long
      +m:saveConfig:
@@ -39662,6 +39674,7 @@
      +m:setHost:String
      +m:setPlayerName:String
      +m:setPort:int
+     +m:setSynchronizedPauseActive:boolean
      +m:start:String
      +m:start:
      +m:stop:

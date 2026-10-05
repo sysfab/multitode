@@ -3,6 +3,7 @@ package dev.multitode.bridge.host.net;
 import dev.multitode.bridge.shared.BridgeContext;
 import dev.multitode.bridge.shared.net.ConnectionState;
 import dev.multitode.bridge.shared.net.HelloAcceptedPacket;
+import dev.multitode.bridge.shared.net.InboundLuaMessage;
 import dev.multitode.bridge.shared.net.LuaMessagePacket;
 import dev.multitode.bridge.shared.net.PeerInfo;
 
@@ -49,6 +50,7 @@ public final class HostSession {
         long now = System.currentTimeMillis();
         PeerInfo peerInfo = new PeerInfo(playerId, playerName, requestedRole, remoteAddress, now);
         context.getSessionRegistry().putPeer(peerInfo);
+        broadcastPlayerEvent(peerInfo, "player_connected");
         return peerInfo;
     }
 
@@ -74,6 +76,7 @@ public final class HostSession {
 
         peerInfo.setConnectionState(ConnectionState.DISCONNECTED);
         context.getSessionRegistry().removePeer(playerId);
+        broadcastPlayerEvent(peerInfo, "player_disconnected");
     }
 
     public boolean broadcastLuaMessage(String messageChannel, String messageName, int senderPlayerId, String payloadJson) {
@@ -92,5 +95,14 @@ public final class HostSession {
         }
 
         return connection.sendLuaMessage(new LuaMessagePacket(messageChannel, messageName, senderPlayerId, payloadJson));
+    }
+
+    private void broadcastPlayerEvent(PeerInfo peerInfo, String eventName) {
+        broadcastLuaMessage(
+                "system",
+                eventName,
+                peerInfo.getPlayerId(),
+                InboundLuaMessage.quoteJson(peerInfo.getPlayerName())
+        );
     }
 }

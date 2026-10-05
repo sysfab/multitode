@@ -187,11 +187,23 @@ multitode.start = function(role)
     end
     local bridge = multitode.getApi():start()
     logger:i("Bridge started as %s (%s)", multitode.getApi():getRoleName(), multitode.getApi():getLifecycleStateName())
+    if multitode.getApi():getRoleName() == "HOST_AND_CLIENT" then
+        C.Notifications:i():addSuccess("Server started")
+    end
     return bridge
 end
 
 multitode.stop = function()
-    multitode.getApi():stop()
+    local api = multitode.getApi()
+    local role = api:getRoleName()
+    local wasActive = api:isSessionActive()
+    api:stop()
+    if wasActive then
+        C.Notifications:i():addFailure("You disconnected")
+    end
+    if role == "HOST_AND_CLIENT" then
+        C.Notifications:i():addFailure("Server stopped")
+    end
     logger:i("Bridge stopped")
 end
 
@@ -259,7 +271,9 @@ multitode.getSessionInfo = function()
         localPlayerId = api:getLocalPlayerId(),
         connectionState = api:getConnectionStateName(),
         sessionActive = api:isSessionActive(),
-        connectedPeerCount = api:getConnectedPeerCount()
+        connectedPeerCount = api:getConnectedPeerCount(),
+        packetsSent = api:getPacketsSent(),
+        packetsReceived = api:getPacketsReceived()
     }
 end
 
@@ -373,23 +387,33 @@ multitode.net.dispatchPending = function(limit)
             break
         end
 
-        local channelHandlers = multitode.net.handlers[envelope.messageChannel]
-        local handler = channelHandlers and channelHandlers[envelope.messageName] or nil
-        if handler ~= nil then
-            handler({
-                receiverContext = envelope.receiverContext,
-                messageChannel = envelope.messageChannel,
-                messageName = envelope.messageName,
-                senderPlayerId = envelope.senderPlayerId
-            }, envelope.payload)
+        if envelope.messageChannel == "system" and envelope.messageName == "player_connected" then
+            local playerName = envelope.senderPlayerId == multitode.getApi():getLocalPlayerId()
+                and "You" or tostring(envelope.payload)
+            C.Notifications:i():addSuccess(playerName .. " connected")
+        elseif envelope.messageChannel == "system" and envelope.messageName == "player_disconnected" then
+            local playerName = envelope.senderPlayerId == multitode.getApi():getLocalPlayerId()
+                and "You" or tostring(envelope.payload)
+            C.Notifications:i():addFailure(playerName .. " disconnected")
         else
-            logger:w(
-                "No Lua message handler for %s/%s (receiver=%s sender=%s)",
-                tostring(envelope.messageChannel),
-                tostring(envelope.messageName),
-                tostring(envelope.receiverContext),
-                tostring(envelope.senderPlayerId)
-            )
+            local channelHandlers = multitode.net.handlers[envelope.messageChannel]
+            local handler = channelHandlers and channelHandlers[envelope.messageName] or nil
+            if handler ~= nil then
+                handler({
+                    receiverContext = envelope.receiverContext,
+                    messageChannel = envelope.messageChannel,
+                    messageName = envelope.messageName,
+                    senderPlayerId = envelope.senderPlayerId
+                }, envelope.payload)
+            else
+                logger:w(
+                    "No Lua message handler for %s/%s (receiver=%s sender=%s)",
+                    tostring(envelope.messageChannel),
+                    tostring(envelope.messageName),
+                    tostring(envelope.receiverContext),
+                    tostring(envelope.senderPlayerId)
+                )
+            end
         end
         processed = processed + 1
     end
@@ -399,6 +423,9 @@ end
 
 multitode.net.enableAutoDispatch = function(limit)
     if autoDispatchRegistered or limit == nil then
+        return
+    end
+    if not multitode.getApi():claimGlobalHook("lua-message-auto-dispatch") then
         return
     end
 

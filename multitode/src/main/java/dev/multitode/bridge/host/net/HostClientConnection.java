@@ -55,6 +55,7 @@ public final class HostClientConnection {
             this.outputStream = outputStream;
 
             HelloPacket helloPacket = PacketCodec.readHello(inputStream);
+            hostSession.getContext().getSessionRegistry().recordPacketReceived();
             LOGGER.i("Received HELLO from %s player=%s role=%s protocol=%s",
                     remoteAddress,
                     helloPacket.getPlayerName(),
@@ -65,12 +66,14 @@ public final class HostClientConnection {
                 PacketCodec.writeHelloRejected(outputStream, new HelloRejectedPacket(
                         "Protocol mismatch: expected " + ProtocolVersion.CURRENT + " but received " + helloPacket.getProtocolVersion()
                 ));
+                hostSession.getContext().getSessionRegistry().recordPacketSent();
                 return;
             }
 
             HelloAcceptedPacket acceptedPacket = hostSession.createHelloAcceptedPacket();
             this.playerId = acceptedPacket.getPlayerId();
             PacketCodec.writeHelloAccepted(outputStream, acceptedPacket);
+            hostSession.getContext().getSessionRegistry().recordPacketSent();
             hostSession.registerConnection(this);
             hostSession.bindPlayerConnection(playerId, this);
             PeerInfo peerInfo = hostSession.registerPeer(
@@ -109,12 +112,18 @@ public final class HostClientConnection {
         while (running.get()) {
             long now = System.currentTimeMillis();
             if (now - lastReceivedAt > INACTIVITY_TIMEOUT_MILLIS) {
-                PacketCodec.writeDisconnect(outputStream, new DisconnectPacket("Timed out waiting for client traffic"));
+                synchronized (this) {
+                    PacketCodec.writeDisconnect(outputStream, new DisconnectPacket("Timed out waiting for client traffic"));
+                    hostSession.getContext().getSessionRegistry().recordPacketSent();
+                }
                 throw new IOException("Client timed out");
             }
 
             if (now - lastPingAt >= PING_INTERVAL_MILLIS) {
-                PacketCodec.writePing(outputStream, new PingPacket(now));
+                synchronized (this) {
+                    PacketCodec.writePing(outputStream, new PingPacket(now));
+                    hostSession.getContext().getSessionRegistry().recordPacketSent();
+                }
                 lastPingAt = now;
             }
 
@@ -124,11 +133,13 @@ public final class HostClientConnection {
                 hostSession.touchPeer(playerId);
                 if (packetType == PacketType.PING) {
                     PacketCodec.readPingPayload(inputStream);
+                    hostSession.getContext().getSessionRegistry().recordPacketReceived();
                     continue;
                 }
 
                 if (packetType == PacketType.LUA_MESSAGE) {
                     LuaMessagePacket messagePacket = PacketCodec.readLuaMessagePayload(inputStream);
+                    hostSession.getContext().getSessionRegistry().recordPacketReceived();
                     hostSession.getContext().getSessionRegistry().enqueueInboundLuaMessage(new InboundLuaMessage(
                             "HOST",
                             messagePacket.getMessageChannel(),
@@ -145,6 +156,7 @@ public final class HostClientConnection {
 
                 if (packetType == PacketType.DISCONNECT) {
                     DisconnectPacket disconnectPacket = PacketCodec.readDisconnectPayload(inputStream);
+                    hostSession.getContext().getSessionRegistry().recordPacketReceived();
                     LOGGER.i("Client %s disconnected: %s", remoteAddress, disconnectPacket.getReason());
                     return;
                 }
@@ -162,6 +174,7 @@ public final class HostClientConnection {
 
         try {
             PacketCodec.writeLuaMessage(outputStream, packet);
+            hostSession.getContext().getSessionRegistry().recordPacketSent();
             return true;
         } catch (IOException exception) {
             LOGGER.w("Failed to send Lua message to playerId=%s: %s", playerId, exception.getMessage());

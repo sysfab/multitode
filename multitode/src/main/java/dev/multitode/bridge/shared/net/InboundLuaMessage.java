@@ -17,15 +17,15 @@ public final class InboundLuaMessage {
 
     public String toJson() {
         return "{" +
-                "\"receiverContext\":" + quote(receiverContext) + "," +
-                "\"messageChannel\":" + quote(messageChannel) + "," +
-                "\"messageName\":" + quote(messageName) + "," +
+                "\"receiverContext\":" + quoteJson(receiverContext) + "," +
+                "\"messageChannel\":" + quoteJson(messageChannel) + "," +
+                "\"messageName\":" + quoteJson(messageName) + "," +
                 "\"senderPlayerId\":" + senderPlayerId + "," +
                 "\"payload\":" + payloadJson +
                 "}";
     }
 
-    private static String quote(String value) {
+    public static String quoteJson(String value) {
         StringBuilder builder = new StringBuilder();
         builder.append('"');
         for (int i = 0; i < value.length(); i++) {

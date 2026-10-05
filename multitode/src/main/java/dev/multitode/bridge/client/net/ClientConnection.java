@@ -28,6 +28,8 @@ public final class ClientConnection {
     private static final TLog LOGGER = TLog.forTag("multitode/ClientConnection");
     private static final int SOCKET_TIMEOUT_MILLIS = 1000;
     private static final int CONNECT_TIMEOUT_MILLIS = 5000;
+    private static final int CONNECT_RETRY_COUNT = 3;
+    private static final long CONNECT_RETRY_INTERVAL_MILLIS = 1500L;
     private static final long PING_INTERVAL_MILLIS = 2000L;
     private static final long INACTIVITY_TIMEOUT_MILLIS = 10000L;
 
@@ -72,58 +74,108 @@ public final class ClientConnection {
         String host = context.getSessionConfig().getNetwork().getHost();
         int port = context.getSessionConfig().getNetwork().getPort();
 
-        Socket socket = new Socket();
+        int totalAttempts = CONNECT_RETRY_COUNT + 1;
         try {
-            socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MILLIS);
-            socket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
-            socket.setTcpNoDelay(true);
+            for (int attempt = 1; attempt <= totalAttempts && running.get(); attempt++) {
+                Socket socket = new Socket();
+                boolean activeSessionStarted = false;
+                try {
+                    synchronized (this) {
+                        if (!running.get()) {
+                            return;
+                        }
+                        activeSocket = socket;
+                    }
+                    socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MILLIS);
+                    socket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
+                    socket.setTcpNoDelay(true);
 
-            DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-            DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                    DataInputStream inputStream = new DataInputStream(socket.getInputStream());
 
-            activeSocket = socket;
-            activeOutputStream = outputStream;
+                    activeOutputStream = outputStream;
 
-            state.set(ConnectionState.HANDSHAKE);
-            PacketCodec.writeHello(outputStream, new HelloPacket(
-                    ProtocolVersion.CURRENT,
-                    context.getSessionConfig().getPlayer().getName(),
-                    context.getSessionConfig().getRole()
-            ));
-            LOGGER.i("Sent HELLO to %s:%s as %s", host, port, context.getSessionConfig().getPlayer().getName());
+                    state.set(ConnectionState.HANDSHAKE);
+                    synchronized (this) {
+                        PacketCodec.writeHello(outputStream, new HelloPacket(
+                                ProtocolVersion.CURRENT,
+                                context.getSessionConfig().getPlayer().getName(),
+                                context.getSessionConfig().getRole()
+                        ));
+                        context.getSessionRegistry().recordPacketSent();
+                    }
+                    LOGGER.i("Sent HELLO to %s:%s as %s", host, port, context.getSessionConfig().getPlayer().getName());
 
-            PacketType packetType = PacketCodec.readType(inputStream);
-            if (packetType == PacketType.HELLO_ACCEPTED) {
-                HelloAcceptedPacket acceptedPacket = PacketCodec.readHelloAcceptedPayload(inputStream);
-                state.set(ConnectionState.ACTIVE);
-                LocalSessionInfo localSessionInfo = context.getSessionRegistry().getLocalSessionInfo();
-                long now = System.currentTimeMillis();
-                localSessionInfo.setSessionId(acceptedPacket.getSessionId());
-                localSessionInfo.setLocalPlayerId(acceptedPacket.getPlayerId());
-                localSessionInfo.setRemoteAddress(host + ":" + port);
-                localSessionInfo.setConnectedAtMillis(now);
-                localSessionInfo.setLastPacketAtMillis(now);
-                localSessionInfo.setConnectionState(ConnectionState.ACTIVE);
-                LOGGER.i("Connected to session %s as playerId=%s",
-                        acceptedPacket.getSessionId(),
-                        acceptedPacket.getPlayerId());
-                runSessionLoop(host, port, inputStream, outputStream);
-                return;
+                    PacketType packetType = PacketCodec.readType(inputStream);
+                    if (packetType == PacketType.HELLO_ACCEPTED) {
+                        HelloAcceptedPacket acceptedPacket = PacketCodec.readHelloAcceptedPayload(inputStream);
+                        context.getSessionRegistry().recordPacketReceived();
+                        activeSessionStarted = true;
+                        state.set(ConnectionState.ACTIVE);
+                        LocalSessionInfo localSessionInfo = context.getSessionRegistry().getLocalSessionInfo();
+                        long now = System.currentTimeMillis();
+                        localSessionInfo.setSessionId(acceptedPacket.getSessionId());
+                        localSessionInfo.setLocalPlayerId(acceptedPacket.getPlayerId());
+                        localSessionInfo.setRemoteAddress(host + ":" + port);
+                        localSessionInfo.setConnectedAtMillis(now);
+                        localSessionInfo.setLastPacketAtMillis(now);
+                        localSessionInfo.setConnectionState(ConnectionState.ACTIVE);
+                        LOGGER.i("Connected to session %s as playerId=%s",
+                                acceptedPacket.getSessionId(),
+                                acceptedPacket.getPlayerId());
+                        runSessionLoop(host, port, inputStream, outputStream);
+                        enqueueLocalPlayerDisconnected();
+                        return;
+                    }
+
+                    if (packetType == PacketType.HELLO_REJECTED) {
+                        HelloRejectedPacket rejectedPacket = PacketCodec.readHelloRejectedPayload(inputStream);
+                        context.getSessionRegistry().recordPacketReceived();
+                        state.set(ConnectionState.DISCONNECTED);
+                        context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
+                        LOGGER.w("Connection rejected by host: %s", rejectedPacket.getReason());
+                        return;
+                    }
+
+                    throw new IOException("Unexpected packet during handshake: " + packetType);
+                } catch (IOException exception) {
+                    boolean canRetry = !activeSessionStarted && running.get() && attempt < totalAttempts;
+                    if (!canRetry) {
+                        if (activeSessionStarted) {
+                            enqueueLocalPlayerDisconnected();
+                        }
+                        state.set(ConnectionState.DISCONNECTED);
+                        context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
+                        LOGGER.w("Failed to connect to %s:%s - %s", host, port, exception.getMessage());
+                        return;
+                    }
+
+                    state.set(ConnectionState.CONNECTING);
+                    LOGGER.w("Connection attempt %s/%s to %s:%s failed - %s; retrying in %sms",
+                            attempt,
+                            totalAttempts,
+                            host,
+                            port,
+                            exception.getMessage(),
+                            CONNECT_RETRY_INTERVAL_MILLIS);
+                } finally {
+                    try {
+                        socket.close();
+                    } catch (IOException ignored) {
+                    }
+                    if (activeSocket == socket) {
+                        activeSocket = null;
+                        activeOutputStream = null;
+                    }
+                }
+
+                try {
+                    Thread.sleep(CONNECT_RETRY_INTERVAL_MILLIS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
-
-            if (packetType == PacketType.HELLO_REJECTED) {
-                HelloRejectedPacket rejectedPacket = PacketCodec.readHelloRejectedPayload(inputStream);
-                state.set(ConnectionState.DISCONNECTED);
-                context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
-                LOGGER.w("Connection rejected by host: %s", rejectedPacket.getReason());
-                return;
-            }
-
-            throw new IOException("Unexpected packet during handshake: " + packetType);
-        } catch (IOException exception) {
-            state.set(ConnectionState.DISCONNECTED);
-            context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
-            LOGGER.w("Failed to connect to %s:%s - %s", host, port, exception.getMessage());
         } finally {
             activeSocket = null;
             activeOutputStream = null;
@@ -138,12 +190,18 @@ public final class ClientConnection {
         while (running.get()) {
             long now = System.currentTimeMillis();
             if (now - lastReceivedAt > INACTIVITY_TIMEOUT_MILLIS) {
-                PacketCodec.writeDisconnect(outputStream, new DisconnectPacket("Timed out waiting for host traffic"));
+                synchronized (this) {
+                    PacketCodec.writeDisconnect(outputStream, new DisconnectPacket("Timed out waiting for host traffic"));
+                    context.getSessionRegistry().recordPacketSent();
+                }
                 throw new IOException("Host timed out");
             }
 
             if (now - lastPingAt >= PING_INTERVAL_MILLIS) {
-                PacketCodec.writePing(outputStream, new PingPacket(now));
+                synchronized (this) {
+                    PacketCodec.writePing(outputStream, new PingPacket(now));
+                    context.getSessionRegistry().recordPacketSent();
+                }
                 lastPingAt = now;
             }
 
@@ -153,11 +211,13 @@ public final class ClientConnection {
                 context.getSessionRegistry().getLocalSessionInfo().setLastPacketAtMillis(lastReceivedAt);
                 if (packetType == PacketType.PING) {
                     PacketCodec.readPingPayload(inputStream);
+                    context.getSessionRegistry().recordPacketReceived();
                     continue;
                 }
 
                 if (packetType == PacketType.LUA_MESSAGE) {
                     LuaMessagePacket messagePacket = PacketCodec.readLuaMessagePayload(inputStream);
+                    context.getSessionRegistry().recordPacketReceived();
                     context.getSessionRegistry().enqueueInboundLuaMessage(new InboundLuaMessage(
                             "CLIENT",
                             messagePacket.getMessageChannel(),
@@ -174,6 +234,7 @@ public final class ClientConnection {
 
                 if (packetType == PacketType.DISCONNECT) {
                     DisconnectPacket disconnectPacket = PacketCodec.readDisconnectPayload(inputStream);
+                    context.getSessionRegistry().recordPacketReceived();
                     state.set(ConnectionState.DISCONNECTED);
                     context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
                     LOGGER.i("Disconnected by host %s:%s - %s", host, port, disconnectPacket.getReason());
@@ -200,16 +261,28 @@ public final class ClientConnection {
     }
 
     public synchronized boolean sendLuaMessageToHost(String messageChannel, String messageName, int senderPlayerId, String payloadJson) {
-        if (!running.get() || activeOutputStream == null) {
+        if (!running.get() || state.get() != ConnectionState.ACTIVE || activeOutputStream == null) {
             return false;
         }
 
         try {
             PacketCodec.writeLuaMessage(activeOutputStream, new LuaMessagePacket(messageChannel, messageName, senderPlayerId, payloadJson));
+            context.getSessionRegistry().recordPacketSent();
             return true;
         } catch (IOException exception) {
             LOGGER.w("Failed to send Lua message to host: %s", exception.getMessage());
             return false;
         }
+    }
+
+    private void enqueueLocalPlayerDisconnected() {
+        LocalSessionInfo localSessionInfo = context.getSessionRegistry().getLocalSessionInfo();
+        context.getSessionRegistry().enqueueInboundLuaMessage(new InboundLuaMessage(
+                "CLIENT",
+                "system",
+                "player_disconnected",
+                localSessionInfo.getLocalPlayerId(),
+                InboundLuaMessage.quoteJson(context.getSessionConfig().getPlayer().getName())
+        ));
     }
 }

@@ -7,11 +7,14 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class SessionRegistry {
     private final LocalSessionInfo localSessionInfo = new LocalSessionInfo();
     private final Map<Integer, PeerInfo> peersByPlayerId = new ConcurrentHashMap<>();
     private final Queue<InboundLuaMessage> inboundLuaMessages = new ConcurrentLinkedQueue<>();
+    private final AtomicLong packetsSent = new AtomicLong();
+    private final AtomicLong packetsReceived = new AtomicLong();
 
     public LocalSessionInfo getLocalSessionInfo() {
         return localSessionInfo;
@@ -67,11 +70,29 @@ public final class SessionRegistry {
         return inboundLuaMessages.size();
     }
 
+    public void recordPacketSent() {
+        packetsSent.incrementAndGet();
+    }
+
+    public long getPacketsSent() {
+        return packetsSent.get();
+    }
+
+    public void recordPacketReceived() {
+        packetsReceived.incrementAndGet();
+    }
+
+    public long getPacketsReceived() {
+        return packetsReceived.get();
+    }
+
     public String describe() {
         return "sessionId=" + localSessionInfo.getSessionId()
                 + ", localPlayerId=" + localSessionInfo.getLocalPlayerId()
                 + ", connectionState=" + localSessionInfo.getConnectionState().name()
                 + ", remoteAddress=" + localSessionInfo.getRemoteAddress()
-                + ", connectedPeerCount=" + getConnectedPeerCount();
+                + ", connectedPeerCount=" + getConnectedPeerCount()
+                + ", packetsSent=" + getPacketsSent()
+                + ", packetsReceived=" + getPacketsReceived();
     }
 }
