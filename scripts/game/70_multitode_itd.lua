@@ -225,47 +225,44 @@ local function inspect_queued_actions()
             local action = actions[i]
             if action ~= nil then
                 local actionType = get_action_type_name(action)
-                local actionName = actionType
-                if actionName ~= nil then
-                    local actionString = tostring(action)
-                    if multitode.consumeApprovedQueuedAction(tick, actionString) then
+                local actionString = tostring(action)
+                if multitode.consumeApprovedQueuedAction(tick, actionString) then
+                    logger:i(
+                        "Allowed authoritative queued action tick=%s index=%s type=%s action=%s",
+                        tostring(tick),
+                        tostring(i - 1),
+                        tostring(actionType),
+                        actionString
+                    )
+                else
+                    if not should_capture_queued_action(actionType) then
+                        neutralize_queued_action(actions, i, actionType, actionString)
+                        goto continue
+                    end
+
+                    local actionKey = string.format("%s:%s:%s", tostring(tick), tostring(i - 1), actionString)
+                    if not itd.seenQueuedActions[actionKey] then
+                        local actionJson = serialize_action(action)
+                        itd.seenQueuedActions[actionKey] = true
                         logger:i(
-                            "Allowed authoritative queued action tick=%s index=%s type=%s action=%s",
+                            "Queued action tick=%s index=%s type=%s action=%s",
                             tostring(tick),
                             tostring(i - 1),
                             tostring(actionType),
                             actionString
                         )
-                    else
-                        if not should_capture_queued_action(actionType) then
-                            neutralize_queued_action(actions, i, actionType, actionString)
-                            goto continue
+                        local captured, targetTick = capture_action(actionType, {
+                            queuedType = actionType,
+                            queuedIndex = i - 1,
+                            queuedAction = actionString,
+                            actionJson = actionJson
+                        })
+                        if captured and actionType == "CW" and S.wave:isAutoForceWaveEnabled() then
+                            itd.autoWavePendingThroughTick = tonumber(targetTick)
                         end
-
-                        local actionKey = string.format("%s:%s:%s", tostring(tick), tostring(i - 1), actionString)
-                        if not itd.seenQueuedActions[actionKey] then
-                            local actionJson = serialize_action(action)
-                            itd.seenQueuedActions[actionKey] = true
-                            logger:i(
-                                "Queued action tick=%s index=%s type=%s action=%s",
-                                tostring(tick),
-                                tostring(i - 1),
-                                tostring(actionType),
-                                actionString
-                            )
-                            local captured, targetTick = capture_action(actionName, {
-                                queuedType = actionType,
-                                queuedIndex = i - 1,
-                                queuedAction = actionString,
-                                actionJson = actionJson
-                            })
-                            if captured and actionType == "CW" and S.wave:isAutoForceWaveEnabled() then
-                                itd.autoWavePendingThroughTick = tonumber(targetTick)
-                            end
-                        end
-
-                        neutralize_queued_action(actions, i, actionType, actionString)
                     end
+
+                    neutralize_queued_action(actions, i, actionType, actionString)
                 end
             end
 
@@ -325,7 +322,7 @@ local function try_install_for_current_session()
     if S ~= nil then
         logger:i("Attempting ITD interceptor install for current session")
     end
-    install_session_listeners(S)
+    install_session_listeners()
 end
 
 C.Game.EVENTS:getListeners(C.SystemsSetup):add(C.Listener(function(_)
@@ -338,4 +335,4 @@ end))
 
 try_install_for_current_session()
 
-logger:i("Multitode ITD skeleton loaded")
+logger:i("Multitode ITD loaded")

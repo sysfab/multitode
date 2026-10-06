@@ -28,7 +28,6 @@ public final class ClientConnection {
     private static final TLog LOGGER = TLog.forTag("multitode/ClientConnection");
     private static final int SOCKET_TIMEOUT_MILLIS = 1000;
     private static final int CONNECT_TIMEOUT_MILLIS = 5000;
-    private static final int CONNECT_RETRY_COUNT = 3;
     private static final long CONNECT_RETRY_INTERVAL_MILLIS = 1500L;
     private static final long PING_INTERVAL_MILLIS = 2000L;
     private static final long INACTIVITY_TIMEOUT_MILLIS = 10000L;
@@ -74,9 +73,10 @@ public final class ClientConnection {
         String host = context.getSessionConfig().getNetwork().getHost();
         int port = context.getSessionConfig().getNetwork().getPort();
 
-        int totalAttempts = CONNECT_RETRY_COUNT + 1;
+        int attempt = 0;
         try {
-            for (int attempt = 1; attempt <= totalAttempts && running.get(); attempt++) {
+            while (running.get()) {
+                attempt++;
                 Socket socket = new Socket();
                 boolean activeSessionStarted = false;
                 try {
@@ -123,41 +123,22 @@ public final class ClientConnection {
                         LOGGER.i("Connected to session %s as playerId=%s",
                                 acceptedPacket.getSessionId(),
                                 acceptedPacket.getPlayerId());
+                        attempt = 0;
                         runSessionLoop(host, port, inputStream, outputStream);
-                        enqueueLocalPlayerDisconnected();
-                        return;
-                    }
-
-                    if (packetType == PacketType.HELLO_REJECTED) {
+                    } else if (packetType == PacketType.HELLO_REJECTED) {
                         HelloRejectedPacket rejectedPacket = PacketCodec.readHelloRejectedPayload(inputStream);
                         context.getSessionRegistry().recordPacketReceived();
                         state.set(ConnectionState.DISCONNECTED);
                         context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
                         LOGGER.w("Connection rejected by host: %s", rejectedPacket.getReason());
                         return;
+                    } else {
+                        throw new IOException("Unexpected packet during handshake: " + packetType);
                     }
-
-                    throw new IOException("Unexpected packet during handshake: " + packetType);
                 } catch (IOException exception) {
-                    boolean canRetry = !activeSessionStarted && running.get() && attempt < totalAttempts;
-                    if (!canRetry) {
-                        if (activeSessionStarted) {
-                            enqueueLocalPlayerDisconnected();
-                        }
-                        state.set(ConnectionState.DISCONNECTED);
-                        context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.DISCONNECTED);
-                        LOGGER.w("Failed to connect to %s:%s - %s", host, port, exception.getMessage());
-                        return;
+                    if (running.get()) {
+                        LOGGER.w("Connection to %s:%s lost - %s", host, port, exception.getMessage());
                     }
-
-                    state.set(ConnectionState.CONNECTING);
-                    LOGGER.w("Connection attempt %s/%s to %s:%s failed - %s; retrying in %sms",
-                            attempt,
-                            totalAttempts,
-                            host,
-                            port,
-                            exception.getMessage(),
-                            CONNECT_RETRY_INTERVAL_MILLIS);
                 } finally {
                     try {
                         socket.close();
@@ -169,6 +150,20 @@ public final class ClientConnection {
                     }
                 }
 
+                if (!running.get()) {
+                    return;
+                }
+                if (activeSessionStarted) {
+                    enqueueLocalPlayerDisconnected();
+                }
+
+                state.set(ConnectionState.CONNECTING);
+                context.getSessionRegistry().getLocalSessionInfo().setConnectionState(ConnectionState.CONNECTING);
+                LOGGER.i("Reconnecting to %s:%s in %sms (attempt %s)",
+                        host,
+                        port,
+                        CONNECT_RETRY_INTERVAL_MILLIS,
+                        attempt + 1);
                 try {
                     Thread.sleep(CONNECT_RETRY_INTERVAL_MILLIS);
                 } catch (InterruptedException exception) {

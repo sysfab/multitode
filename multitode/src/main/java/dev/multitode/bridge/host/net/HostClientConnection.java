@@ -74,7 +74,6 @@ public final class HostClientConnection {
             this.playerId = acceptedPacket.getPlayerId();
             PacketCodec.writeHelloAccepted(outputStream, acceptedPacket);
             hostSession.getContext().getSessionRegistry().recordPacketSent();
-            hostSession.registerConnection(this);
             hostSession.bindPlayerConnection(playerId, this);
             PeerInfo peerInfo = hostSession.registerPeer(
                     acceptedPacket.getPlayerId(),
@@ -102,6 +101,27 @@ public final class HostClientConnection {
                 hostSession.disconnectPeer(playerId);
             }
             LOGGER.i("Closed host connection for %s, activeConnections=%s", remoteAddress, hostSession.getActiveConnectionCount());
+        }
+    }
+
+    public synchronized void stop(String reason) {
+        if (!running.getAndSet(false)) {
+            return;
+        }
+
+        if (outputStream != null) {
+            try {
+                PacketCodec.writeDisconnect(outputStream, new DisconnectPacket(reason));
+                hostSession.getContext().getSessionRegistry().recordPacketSent();
+            } catch (IOException exception) {
+                LOGGER.w("Failed to notify playerId=%s of host shutdown: %s", playerId, exception.getMessage());
+            }
+        }
+
+        try {
+            socket.close();
+        } catch (IOException exception) {
+            LOGGER.w("Failed to close connection for playerId=%s: %s", playerId, exception.getMessage());
         }
     }
 

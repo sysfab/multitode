@@ -8,7 +8,6 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class HostServer {
     private static final TLog LOGGER = TLog.forTag("multitode/HostServer");
@@ -48,6 +47,7 @@ public final class HostServer {
         }
 
         closeServerSocket();
+        hostSession.closeAllConnections("Host stopped");
         if (acceptThread != null) {
             acceptThread.interrupt();
         }
@@ -70,8 +70,15 @@ public final class HostServer {
         while (running.get()) {
             try {
                 Socket socket = serverSocket.accept();
-                HostClientConnection connection = new HostClientConnection(hostSession, socket);
-                connection.start();
+                synchronized (this) {
+                    if (!running.get()) {
+                        socket.close();
+                        return;
+                    }
+                    HostClientConnection connection = new HostClientConnection(hostSession, socket);
+                    hostSession.registerConnection(connection);
+                    connection.start();
+                }
             } catch (SocketException exception) {
                 if (running.get()) {
                     LOGGER.e("Host accept loop socket error: %s", exception.getMessage());

@@ -81,8 +81,7 @@ local function get_current_systems()
         return nil
     end
 
-    local gameScreen = currentScreen
-    return gameScreen.S
+    return currentScreen.S
 end
 
 local function get_current_tick()

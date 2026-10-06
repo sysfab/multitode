@@ -46,6 +46,13 @@ public final class HostSession {
         return activeConnections.size();
     }
 
+    public void closeAllConnections(String reason) {
+        HostClientConnection[] connections = activeConnections.toArray(new HostClientConnection[0]);
+        for (HostClientConnection connection : connections) {
+            connection.stop(reason);
+        }
+    }
+
     public PeerInfo registerPeer(int playerId, String playerName, dev.multitode.bridge.shared.SessionRole requestedRole, String remoteAddress) {
         long now = System.currentTimeMillis();
         PeerInfo peerInfo = new PeerInfo(playerId, playerName, requestedRole, remoteAddress, now);

@@ -136,7 +136,7 @@ local function apply_config_value(api, key, value)
         if numberValue == nil then
             error("port must be a number")
         end
-        multitode.getApi():setPort(numberValue)
+        api:setPort(numberValue)
     else
         error("unsupported config key: " .. tostring(key))
     end
@@ -173,21 +173,23 @@ end
 multitode.version = multitode.getApi():getVersion()
 
 multitode.init = function(role)
+    local api = multitode.getApi()
     if role ~= nil then
-        multitode.getApi():configureRole(role)
+        api:configureRole(role)
     end
 
-    multitode.getApi():initialize()
-    logger:i("Bridge initialized with role %s", multitode.getApi():getRoleName())
+    api:initialize()
+    logger:i("Bridge initialized with role %s", api:getRoleName())
 end
 
 multitode.start = function(role)
+    local api = multitode.getApi()
     if role ~= nil then
-        multitode.getApi():configureRole(role)
+        api:configureRole(role)
     end
-    local bridge = multitode.getApi():start()
-    logger:i("Bridge started as %s (%s)", multitode.getApi():getRoleName(), multitode.getApi():getLifecycleStateName())
-    if multitode.getApi():getRoleName() == "HOST_AND_CLIENT" then
+    local bridge = api:start()
+    logger:i("Bridge started as %s (%s)", api:getRoleName(), api:getLifecycleStateName())
+    if api:getRoleName() == "HOST_AND_CLIENT" then
         C.Notifications:i():addSuccess("Server started")
     end
     return bridge
@@ -217,22 +219,24 @@ multitode.state = function()
 end
 
 multitode.configure = function(config)
+    local api = multitode.getApi()
     if config == nil then
-        return create_config_table(multitode.getApi())
+        return create_config_table(api)
     end
 
     for key, value in pairs(config) do
-        apply_config_value(multitode.getApi(), key, value)
+        apply_config_value(api, key, value)
     end
 
-    logger:i("Bridge config updated: %s", multitode.getApi():describeConfig())
-    return create_config_table(multitode.getApi())
+    logger:i("Bridge config updated: %s", api:describeConfig())
+    return create_config_table(api)
 end
 
 multitode.resetConfig = function()
-    multitode.getApi():resetConfig()
-    logger:i("Bridge config reset: %s", multitode.getApi():describeConfig())
-    return create_config_table(multitode.getApi())
+    local api = multitode.getApi()
+    api:resetConfig()
+    logger:i("Bridge config reset: %s", api:describeConfig())
+    return create_config_table(api)
 end
 
 multitode.getConfig = function()
@@ -245,23 +249,20 @@ multitode.saveConfig = function()
 end
 
 multitode.loadConfig = function()
-    local loaded = multitode.getApi():loadConfig()
+    local api = multitode.getApi()
+    local loaded = api:loadConfig()
     if loaded then
-        logger:i("Bridge config loaded from %s", multitode.getApi():getConfigFilePath())
+        logger:i("Bridge config loaded from %s", api:getConfigFilePath())
     else
-        logger:i("Bridge config file not found at %s", multitode.getApi():getConfigFilePath())
+        logger:i("Bridge config file not found at %s", api:getConfigFilePath())
     end
 
-    return loaded, create_config_table(multitode.getApi())
+    return loaded, create_config_table(api)
 end
 
 multitode.validateConfig = function()
     local validationError = multitode.getApi():getConfigValidationError()
-    if validationError == nil then
-        return true, nil
-    end
-
-    return false, validationError
+    return validationError == nil, validationError
 end
 
 multitode.getSessionInfo = function()
@@ -379,9 +380,8 @@ multitode.net.dispatchPending = function(limit)
     if limit == nil then return end
 
     local processed = 0
-    local maxCount = limit
 
-    while processed < maxCount do
+    while processed < limit do
         local envelope = multitode.net.poll()
         if envelope == nil then
             break
@@ -521,7 +521,7 @@ end
 logger:i("Saved bridge config applied: role=%s player=%s", tostring(config.role), tostring(config.name))
 
 local state = multitode.state()
-if (state.initialized and state.lifecycleState == "RUNNING") ~= true then
+if not (state.initialized and state.lifecycleState == "RUNNING") then
     multitode.start()
 end
 ----------------------

@@ -27,24 +27,11 @@ local function get_current_basic_level_name()
         return nil
     end
 
-    local gameScreen = currentScreen
-    if gameScreen.S == nil or gameScreen.S.gameState == nil then
+    if currentScreen.S == nil or currentScreen.S.gameState == nil then
         return nil
     end
 
-    return gameScreen.S.gameState.basicLevelName
-end
-
-local function start_basic_level(levelName)
-    local basicLevel = C.Game.i.basicLevelManager:getLevel(levelName)
-    if basicLevel == nil then
-        logger:e("Failed to start synced level %s: level not found", tostring(levelName))
-        return false
-    end
-
-    C.Game.i.screenManager:startNewBasicLevel(basicLevel, nil)
-    logger:i("Started synced level %s", tostring(levelName))
-    return true
+    return currentScreen.S.gameState.basicLevelName
 end
 
 local function clear_pending_client_level_sync()
@@ -267,15 +254,10 @@ local function ensure_handlers_registered()
         end
 
         assembly.chunks[payload.index] = payload.data
-        local complete = true
         for index = 1, assembly.total_chunks do
             if assembly.chunks[index] == nil then
-                complete = false
-                break
+                return
             end
-        end
-        if not complete then
-            return
         end
 
         levelSync.pendingClientSnapshotSync = {

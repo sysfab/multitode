@@ -1,32 +1,20 @@
 local logger = C.TLog:forTag("multitode/ui_menu.lua")
 
 local patchedRoot = nil
-local profileSummaryActor = nil
 local profileNameLabel = nil
 local multiplayerWindow = nil
 local pendingWindowReopenFrames = -1
 local lastPatchedUsername = nil
-local lastDumpedUsername = nil
 local patchLogged = false
-local profileClickListeners = {}
-local listenerOwnersDumped = false
 local open_multiplayer_window = nil
-
-local function clear_profile_click_listener()
-    profileClickListeners = {}
-    profileSummaryActor = nil
-end
+local configBeforeMenu = nil
+local windowsClosingForReopen = {}
+local connectionStatusLabel = nil
+local packetsLabel = nil
 
 local function clear_profile_state()
-    clear_profile_click_listener()
     profileNameLabel = nil
     lastPatchedUsername = nil
-    lastDumpedUsername = nil
-end
-
-local function toggle_flag(key)
-    local config = multitode.getConfig()
-    multitode.configure({ [key] = not not not config[key] })
 end
 
 local function create_action_button(text, onClick)
@@ -44,14 +32,31 @@ local function add_info_row(table, title, value)
     local valueLabel = C.Label.new(tostring(value), labelStyle)
     valueLabel:setWrap(true)
     table:add(valueLabel):width(380):left():padBottom(8):row()
+    return valueLabel
+end
+
+local function configs_equal(left, right)
+    return left.role == right.role
+        and left.name == right.name
+        and left.host == right.host
+        and left.port == right.port
+end
+
+local function remove_multiplayer_window_for_reopen()
+    if multiplayerWindow == nil then
+        return
+    end
+
+    local window = multiplayerWindow
+    windowsClosingForReopen[window] = true
+    multiplayerWindow = nil
+    connectionStatusLabel = nil
+    packetsLabel = nil
+    window:remove()
 end
 
 local function reopen_multiplayer_window()
-    if multiplayerWindow ~= nil then
-        multiplayerWindow:remove()
-        multiplayerWindow = nilget_username
-    end
-
+    remove_multiplayer_window_for_reopen()
     open_multiplayer_window()
 end
 
@@ -64,54 +69,15 @@ local function format_bridge_mode(role)
 end
 
 local function next_bridge_mode(role)
-    local bridgeModes = {
-        "CLIENT",
-        "HOST_AND_CLIENT"
-    }
-
-    local current = tostring(role or "HOST_AND_CLIENT")
-
-    for i = 1, #bridgeModes do
-        if bridgeModes[i] == current then
-            return bridgeModes[(i % #bridgeModes) + 1]
-        end
+    if tostring(role) == "CLIENT" then
+        return "HOST_AND_CLIENT"
     end
 
-    return bridgeModes[1]
-end
-
-local function open_username_input()
-    local config = multitode.getConfig()
-
-    if multiplayerWindow ~= nil then
-        multiplayerWindow:remove()
-        multiplayerWindow = nil
-    end
-
-    local listener = luajava.createProxy(C.TextInputListener, {
-        input = function(_, text)
-            local value = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-            if value == "" then
-                pendingWindowReopenFrames = 2
-                return
-            end
-
-            multitode.configure({ name = value })
-            pendingWindowReopenFrames = 2
-        end,
-        canceled = function()
-            pendingWindowReopenFrames = 2
-        end
-    })
-
-    C.Game.i.uiManager:getTextInput(listener, "Change Username", tostring(config.name or ""), "Player name")
+    return "CLIENT"
 end
 
 local function open_config_text_input(title, initialValue, hint, onSubmit)
-    if multiplayerWindow ~= nil then
-        multiplayerWindow:remove()
-        multiplayerWindow = nil
-    end
+    remove_multiplayer_window_for_reopen()
 
     local listener = luajava.createProxy(C.TextInputListener, {
         input = function(_, text)
@@ -127,6 +93,13 @@ local function open_config_text_input(title, initialValue, hint, onSubmit)
     })
 
     C.Game.i.uiManager:getTextInput(listener, title, tostring(initialValue or ""), hint)
+end
+
+local function open_username_input()
+    local config = multitode.getConfig()
+    open_config_text_input("Change Username", config.name, "Player name", function(value)
+        multitode.configure({ name = value })
+    end)
 end
 
 local function open_host_input()
@@ -147,15 +120,6 @@ local function open_port_input()
     end)
 end
 
-local function text_of_label(label)
-    local text = label:getText()
-    if text == nil then
-        return nil
-    end
-
-    return text:toString()
-end
-
 local function text_of_actor(actor)
     local ok, text = pcall(function()
         return actor:getText()
@@ -174,23 +138,19 @@ local function try_set_actor_text(actor, value)
     return ok
 end
 
-local function dump_profile_text_candidates(actor)
-    if actor == nil then
+local function update_multiplayer_status()
+    if multiplayerWindow == nil or multiplayerWindow:getParent() == nil
+            or connectionStatusLabel == nil then
         return
     end
 
-    local text = text_of_actor(actor)
-
-    local ok, children = pcall(function()
-        return actor:getChildren()
-    end)
-    if not ok or children == nil then
+    local ok, sessionInfo = pcall(multitode.getSessionInfo)
+    if not ok then
         return
     end
 
-    for i = 1, children.size do
-        dump_profile_text_candidates(children.items[i])
-    end
+    try_set_actor_text(connectionStatusLabel, sessionInfo.sessionActive and "Connected" or "Disconnected")
+    try_set_actor_text(packetsLabel, tostring(sessionInfo.packetsSent).."/"..tostring(sessionInfo.packetsReceived).." packets")
 end
 
 open_multiplayer_window = function()
@@ -198,6 +158,10 @@ open_multiplayer_window = function()
         multiplayerWindow:toFront()
         multiplayerWindow:show()
         return
+    end
+
+    if configBeforeMenu == nil then
+        configBeforeMenu = multitode.getConfig()
     end
 
     local windowStyle = C.Game.i.assetManager:createDefaultWindowStyle()
@@ -209,6 +173,24 @@ open_multiplayer_window = function()
     window:setTitle("")
     window:addListener(C.WindowListener({
         closed = function()
+            if windowsClosingForReopen[window] then
+                windowsClosingForReopen[window] = nil
+                return
+            end
+
+            if multiplayerWindow == window then
+                multiplayerWindow = nil
+                connectionStatusLabel = nil
+                packetsLabel = nil
+            end
+
+            local previousConfig = configBeforeMenu
+            configBeforeMenu = nil
+            local currentConfig = multitode.getConfig()
+            if previousConfig == nil or configs_equal(previousConfig, currentConfig) then
+                return
+            end
+
             local ok, err = pcall(function()
                 multitode.saveConfig()
                 multitode.stop()
@@ -236,6 +218,22 @@ open_multiplayer_window = function()
     add_info_row(info, "Main developer", "sysfab")
 
     content:add(info):width(540):left():padBottom(12):row()
+
+    local sessionInfo = multitode.getSessionInfo()
+    local status = C.Table.new()
+    status:setBackground(C.Game.i.assetManager:getDrawable("blank"):tint(C.Color.new_4f(0.08, 0.1, 0.14, 0.9)))
+    status:pad(16)
+    local statusTitle = C.Label.new("Connection", titleStyle)
+    statusTitle:setColor(C.MaterialColor.LIGHT_BLUE.P500)
+    status:add(statusTitle):colspan(2):left():padBottom(14):row()
+    connectionStatusLabel = add_info_row(
+        status,
+        "Status",
+        sessionInfo.sessionActive and "Connected" or "Disconnected"
+    )
+    packetsLabel = add_info_row(status, "Sent/received", tostring(sessionInfo.packetsSent).."/"..tostring(sessionInfo.packetsReceived).." packets")
+
+    content:add(status):width(540):left():padBottom(12):row()
 
     local bridgeModeButton = create_action_button(
         format_bridge_mode(config.role),
@@ -302,9 +300,6 @@ local function ensure_profile_click_listener(profileSummary)
         return
     end
 
-    clear_profile_click_listener()
-    profileSummaryActor = profileSummary
-
     local replacementListener = C.EventListener(function(event)
         if not C.InputEvent:_isInstance(event) then
             return false
@@ -343,7 +338,6 @@ local function ensure_profile_click_listener(profileSummary)
 
             if removedAny then
                 actor:addListener(replacementListener)
-                profileClickListeners[#profileClickListeners + 1] = actor
             end
         end
 
@@ -359,8 +353,7 @@ local function ensure_profile_click_listener(profileSummary)
         return patchedAny
     end
 
-    replace_profile_listeners(profileSummaryActor)
-    listenerOwnersDumped = true
+    replace_profile_listeners(profileSummary)
 end
 
 local function find_actor_by_name(actor, targetName)
@@ -387,6 +380,33 @@ local function find_actor_by_name(actor, targetName)
     end
 
     return nil
+end
+
+local function sync_client_game_buttons(root)
+    local newGameButton = find_actor_by_name(root, "main_menu_new_game_button")
+    if newGameButton == nil or newGameButton:getParent() == nil then
+        return
+    end
+
+    local buttons = newGameButton:getParent():getChildren()
+    local continueButton = nil
+    for i = 1, buttons.size do
+        if buttons.items[i] == newGameButton and i > 1 then
+            continueButton = buttons.items[i - 1]
+            break
+        end
+    end
+
+    local visible = multitode.state().role ~= "CLIENT"
+    newGameButton:setVisible(visible)
+    if continueButton ~= nil then
+        continueButton:setVisible(visible)
+    end
+
+    local difficultyControls = find_actor_by_name(root, "MM-layout-bottomCenter")
+    if difficultyControls ~= nil then
+        difficultyControls:setVisible(visible)
+    end
 end
 
 local function patch_actor_tree(actor)
@@ -466,17 +486,12 @@ local function patch_main_menu_ui()
         clear_profile_state()
         patchedRoot = root
         patchLogged = false
-        listenerOwnersDumped = false
+        sync_client_game_buttons(root)
         patch_profile_summary(find_actor_by_name(root, "ProfileSummary"))
         return
     end
 
-    local currentUsername = multitode.getConfig().name
-    if lastDumpedUsername ~= currentUsername then
-        lastDumpedUsername = currentUsername
-        dump_profile_text_candidates(find_actor_by_name(root, "ProfileSummary"))
-    end
-
+    sync_client_game_buttons(root)
     sync_main_menu_username()
 
     patch_profile_summary(find_actor_by_name(root, "ProfileSummary"))
@@ -487,6 +502,8 @@ C.Game.EVENTS:getListeners(com.prineside.tdi2.events.global.Render.class):add(C.
 end))
 
 C.Game.EVENTS:getListeners(com.prineside.tdi2.events.global.PostRender.class):add(C.Listener(function(_)
+    update_multiplayer_status()
+
     if pendingWindowReopenFrames > 0 then
         pendingWindowReopenFrames = pendingWindowReopenFrames - 1
     elseif pendingWindowReopenFrames == 0 then
@@ -501,6 +518,7 @@ C.Game.EVENTS:getListeners(com.prineside.tdi2.events.global.PostRender.class):ad
         return
     end
 
+    sync_client_game_buttons(C.Game.i.uiManager.stage:getRoot())
     sync_main_menu_username()
     patch_profile_summary(find_actor_by_name(C.Game.i.uiManager.stage:getRoot(), "ProfileSummary"))
 end))
